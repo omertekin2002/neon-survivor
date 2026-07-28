@@ -277,6 +277,19 @@
   .abLabel{ font-size:9px; letter-spacing:2px; color:#7f97ad; }
   .kbd{ color:var(--cyan); }
 
+  /* overload meter — the second active verb, so it gets equal billing with dash */
+  #ultBarBg{ height:9px; width:92px; margin-top:10px; }
+  #ultFill{
+    height:100%; width:0%;
+    background:linear-gradient(90deg,#c86bff,#ff2ea6);
+    box-shadow:0 0 10px rgba(200,107,255,0.75);
+    transition:width .12s ease;
+  }
+  #ultBarBg.ready{ border-color:var(--yellow); box-shadow:0 0 16px rgba(249,232,56,0.55); }
+  #ultBarBg.ready #ultFill{ background:linear-gradient(90deg,#f9e838,#ff8a2e); animation:ultReady 1s ease-in-out infinite; }
+  @keyframes ultReady{ 0%,100%{ opacity:0.6; } 50%{ opacity:1; } }
+  #ultLabel.ready{ color:var(--yellow); text-shadow:0 0 8px rgba(249,232,56,0.6); }
+
   #dashBtn{
     position:absolute; right:20px; bottom:20px;
     width:76px; height:76px; border-radius:50%;
@@ -290,6 +303,26 @@
   #dashBtn.on{ display:flex; }
   #dashBtn.cool{ opacity:0.35; }
   #dashBtn:active{ transform:scale(0.94); }
+
+  #ultBtn{
+    position:absolute; right:28px; bottom:108px;
+    width:62px; height:62px; border-radius:50%;
+    background:radial-gradient(circle at 50% 40%, rgba(200,107,255,0.26), rgba(200,107,255,0.05));
+    border:2px solid rgba(200,107,255,0.5);
+    color:#c9b4e8; font-size:21px;
+    display:none; align-items:center; justify-content:center;
+    pointer-events:auto; cursor:pointer;
+    opacity:0.5;
+    box-shadow:0 0 16px rgba(200,107,255,0.25);
+  }
+  #ultBtn.on{ display:flex; }
+  #ultBtn.ready{
+    opacity:1; color:var(--yellow);
+    border-color:var(--yellow);
+    box-shadow:0 0 26px rgba(249,232,56,0.6);
+    background:radial-gradient(circle at 50% 40%, rgba(249,232,56,0.3), rgba(249,232,56,0.06));
+  }
+  #ultBtn:active{ transform:scale(0.94); }
 
   /* ---------- stats / loadout ---------- */
   #statsScreen{ z-index:6; }
@@ -435,6 +468,7 @@
     .buffChip{ font-size:9px; padding:2px 7px; }
     #comboText{ font-size:11px; bottom:104px; }
     #dashBtn{ width:66px; height:66px; right:14px; bottom:14px; font-size:22px; }
+    #ultBtn{ width:54px; height:54px; right:20px; bottom:92px; font-size:18px; }
   }
   @media (prefers-reduced-motion: reduce){
     .title{ animation:none; }
@@ -490,8 +524,11 @@
     <div id="abilityWrap">
       <div id="dashPips"></div>
       <div class="abLabel">DASH <span class="kbd">SPACE</span></div>
+      <div class="barBg" id="ultBarBg"><div id="ultFill"></div></div>
+      <div class="abLabel" id="ultLabel">OVERLOAD <span class="kbd">E</span></div>
     </div>
     <div id="dashBtn">⇢</div>
+    <div id="ultBtn">◉</div>
   </div>
 
   <div id="joystick"><div id="joystickKnob"></div></div>
@@ -504,14 +541,16 @@
       <div style="font-size:12px;color:#cfe3f2;letter-spacing:1px;line-height:1.6;">
         Your cannon fires itself and shoots where you steer.
         <b style="color:var(--cyan)">You</b> handle the dodging — dash <i>through</i> enemy fire
-        to trigger <b style="color:var(--yellow)">SURGE</b>. Crack loot caches, hold Overcharge
-        Nodes, and evolve a build before the bosses catch up.
+        to trigger <b style="color:var(--yellow)">SURGE</b>, and bank damage into
+        <b style="color:var(--purple)">OVERLOAD</b> for a screen-clearing detonation.
+        Crack loot caches, hold Overcharge Nodes, and evolve a build before the bosses catch up.
       </div>
       <div class="subtitle" style="margin:16px 0 8px;font-size:11px;">SELECT PILOT</div>
       <div class="classGrid" id="classGrid"></div>
       <div class="controls">
         <div><b>WASD</b>/<b>ARROWS</b> move &amp; aim</div>
         <div><b>SPACE</b> dash</div>
+        <div><b>E</b> overload</div>
         <div><b>P</b> pause</div>
         <div><b>I</b> loadout</div>
       </div>
@@ -539,7 +578,7 @@
     <div class="title" style="font-size:clamp(28px,6vw,50px);">PAUSED</div>
     <div class="panel" style="max-width:420px;">
       <div class="controls" style="display:flex;">
-        <div><b>WASD</b> move</div><div><b>SPACE</b> dash</div><div><b>I</b> loadout</div><div><b>M</b> mute</div>
+        <div><b>WASD</b> move</div><div><b>SPACE</b> dash</div><div><b>E</b> overload</div><div><b>I</b> loadout</div><div><b>M</b> mute</div>
       </div>
       <button class="btn" id="resumeBtn">▶ RESUME</button>
       <button class="btn secondary" id="restartFromPauseBtn">⟲ ABANDON RUN</button>
@@ -569,7 +608,9 @@
         <div class="goCell">BEST COMBO <b id="finalCombo">0</b></div>
         <div class="goCell">NODES HELD <b id="finalNodes">0</b></div>
         <div class="goCell">PERFECT DODGES <b id="finalDodges">0</b></div>
+        <div class="goCell">OVERLOADS <b id="finalOverloads">0</b></div>
         <div class="goCell">THREAT REACHED <b id="finalThreat">1</b></div>
+        <div class="goCell">DAMAGE DEALT <b id="finalDamage">0</b></div>
       </div>
       <div class="buildStrip" id="goBuildStrip"></div>
       <div id="unlockNote" class="bestscore hidden" style="margin-top:10px;"></div>
@@ -606,9 +647,17 @@ let qualityScale = 1;           // render scale, continuously tuned to the frame
 let fxScale = 1;                // particle budget, dialled back before pixels are
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+let viewW = 0, viewH = 0;   // last raw viewport seen, for the per-frame staleness check
+
 function resize(){
-  W = window.innerWidth;
-  H = window.innerHeight;
+  // A browser can hand you a zero-size viewport transiently — a hidden/collapsed
+  // iframe, a mobile rotation mid-flight. Zero would make canvas.width 0, which
+  // renders nothing and throws in some canvas paths, and nothing ever recovered
+  // because the "did the viewport change" test then compared 0 against 0.
+  viewW = window.innerWidth  || 0;
+  viewH = window.innerHeight || 0;
+  W = Math.max(1, viewW);
+  H = Math.max(1, viewH);
   // re-sample DPR: browser zoom or dragging to another monitor changes it, and
   // sampling it once at load leaves the canvas permanently mis-scaled
   DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -702,11 +751,18 @@ const SHAPES = {
   star:   [-5, -Math.PI/2],
 };
 
+/* Three-level lookup (colour → shape → radius) rather than a composite string
+   key. drawGlow runs several hundred times a frame; building `color+'|'+r+'|'+shape`
+   each time meant several hundred throwaway strings a frame purely to ask the
+   cache a question it already knew the answer to. */
 function glowSprite(color, r, shape){
   r = Math.max(2, Math.round(r));
   shape = shape || 'circle';
-  const key = color + '|' + r + '|' + shape;
-  let s = spriteCache.get(key);
+  let byShape = spriteCache.get(color);
+  if (!byShape){ byShape = new Map(); spriteCache.set(color, byShape); }
+  let byRadius = byShape.get(shape);
+  if (!byRadius){ byRadius = []; byShape.set(shape, byRadius); }
+  let s = byRadius[r];
   if (s) return s;
   const pad  = clamp(r * 1.05, 9, 42);
   const half = Math.ceil(r + pad);
@@ -732,7 +788,7 @@ function glowSprite(color, r, shape){
   tracePoly(g, half, half, r * 0.40, sh[0], sh[1]);
   g.fillStyle = 'rgba(255,255,255,0.5)'; g.fill();
   s = { c, half };
-  spriteCache.set(key, s);
+  byRadius[r] = s;
   return s;
 }
 
@@ -894,7 +950,7 @@ const Audio_ = (() => {
   }
 
   // rate-limit the sounds that can fire dozens of times in one frame (nova, magnet vacuum)
-  let lastHitT = 0, lastDeathT = 0, lastPickupT = 0;
+  let lastHitT = 0, lastDeathT = 0, lastPickupT = 0, lastExecT = 0;
   return {
     unlock(){ ensure(); },
     shoot(){ tone(rand(680,760), 0.05, 'square', 0.032); },
@@ -934,6 +990,20 @@ const Audio_ = (() => {
     warn(){ tone(220, 0.3, 'square', 0.055, {sweepTo:340}); },
     nodeTick(){ tone(880, 0.05, 'sine', 0.022); },
     nodeDone(){ [0,0.1,0.2,0.3].forEach((t,i)=> setTimeout(()=>tone(600+i*140, 0.18, 'square', 0.05), t*1000)); },
+    ultReady(){ [0,0.09].forEach((t,i)=> setTimeout(()=>tone(740+i*300, 0.16, 'triangle', 0.05), t*1000)); },
+    overload(){
+      tone(120, 0.85, 'sawtooth', 0.1, {sweepTo:38});
+      noise(0.65, 0.045);
+      [0,0.08,0.16].forEach((t,i)=> setTimeout(()=>tone(300+i*220, 0.3, 'square', 0.05, {sweepTo:80}), t*1000));
+    },
+    execute(){
+      const n = performance.now();
+      if (n-lastExecT < 70) return;
+      lastExecT = n;
+      tone(1500, 0.07, 'square', 0.03, {sweepTo:420});
+    },
+    // low-HP heartbeat: the vignette is easy to tune out, a pulse in your ears is not
+    heartbeat(){ tone(58, 0.16, 'sine', 0.075, {sweepTo:40}); },
     startMusic, stopMusic,
     setIntensity(v){ intensity = clamp(v,0,1); },
     toggleMute(){
@@ -950,6 +1020,7 @@ const Audio_ = (() => {
 /* ============================= INPUT ============================= */
 const keys = new Set();
 let dashQueued = false;          // edge-triggered: holding SPACE does not spam dashes
+let ultQueued  = false;
 
 function isTypingTarget(el){
   return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
@@ -961,7 +1032,13 @@ window.addEventListener('keydown', e => {
   if (['arrowup','arrowdown','arrowleft','arrowright',' ','spacebar'].includes(k)) e.preventDefault();
   if (e.repeat) return;   // holding a key must not strobe the overlays
 
-  if (!e.repeat && (k === ' ' || k === 'spacebar' || k === 'shift')) dashQueued = true;
+  // Queue actions only while actually playing. Without the guard, an ability key
+  // pressed on the level-up screen sat in the queue and fired the instant the
+  // card was picked — an Overload you never asked for, spent on nothing.
+  if (state === 'playing'){
+    if (!e.repeat && (k === ' ' || k === 'spacebar' || k === 'shift')) dashQueued = true;
+    if (!e.repeat && (k === 'e' || k === 'q')) ultQueued = true;
+  }
   keys.add(k);
 
   if (k === 'p' || k === 'escape'){
@@ -991,6 +1068,7 @@ window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 function onFocusLost(){
   keys.clear();
   dashQueued = false;
+  ultQueued = false;
   if (state === 'playing') togglePause();
 }
 window.addEventListener('blur', onFocusLost);
@@ -1012,6 +1090,7 @@ function readKeyboardMove(out){
 const joystickEl   = document.getElementById('joystick');
 const joystickKnob = document.getElementById('joystickKnob');
 const dashBtn      = document.getElementById('dashBtn');
+const ultBtn       = document.getElementById('ultBtn');
 let touchId = null, joyBase = {x:0,y:0}, joyVec = {x:0,y:0}, joyMag = 0;
 let usingTouch = false;
 const JOY_R = 55;
@@ -1020,14 +1099,15 @@ function armTouchUI(){
   if (usingTouch) return;
   usingTouch = true;
   dashBtn.classList.add('on');
+  ultBtn.classList.add('on');
 }
 
 function startTouch(e){
   armTouchUI();
   if (state !== 'playing') return;
   for (const t of e.changedTouches){
-    // right-bottom corner belongs to the dash pad
-    if (t.clientX > W - 120 && t.clientY > H - 120) continue;
+    // right-bottom corner belongs to the dash pad and the overload pad above it
+    if (t.clientX > W - 120 && t.clientY > H - 200) continue;
     if (touchId !== null) continue;
     touchId = t.identifier;
     joyBase = {x:t.clientX, y:t.clientY};
@@ -1061,11 +1141,16 @@ canvas.addEventListener('touchstart',  startTouch, {passive:true});
 canvas.addEventListener('touchmove',   moveTouch,  {passive:true});
 canvas.addEventListener('touchend',    endTouch,   {passive:true});
 canvas.addEventListener('touchcancel', endTouch,   {passive:true});
-dashBtn.addEventListener('touchstart', e => { e.preventDefault(); dashQueued = true; }, {passive:false});
-dashBtn.addEventListener('click', () => { dashQueued = true; });
+const queueDash = () => { if (state === 'playing') dashQueued = true; };
+const queueUlt  = () => { if (state === 'playing') ultQueued  = true; };
+dashBtn.addEventListener('touchstart', e => { e.preventDefault(); queueDash(); }, {passive:false});
+dashBtn.addEventListener('click', queueDash);
+ultBtn.addEventListener('touchstart', e => { e.preventDefault(); queueUlt(); }, {passive:false});
+ultBtn.addEventListener('click', queueUlt);
 
-/* --- gamepad: left stick to move, any face/shoulder button to dash --- */
-let padDash = false;
+/* --- gamepad: left stick to move, bottom/shoulder buttons dash, top face buttons overload --- */
+const PAD_DASH = [0,1,4,5], PAD_ULT = [2,3,6,7];
+let padDash = false, padUlt = false;
 function readGamepad(out){
   if (!navigator.getGamepads) return false;
   const pads = navigator.getGamepads();
@@ -1077,10 +1162,13 @@ function readGamepad(out){
     if (m < 0.18){ x = 0; y = 0; }
     else if (m > 1){ x /= m; y /= m; }
     out.x = x; out.y = y;
-    const pressed = p.buttons.some((b,bi) => bi < 8 && b.pressed);
-    if (pressed && !padDash) dashQueued = true;
-    padDash = pressed;
-    return m >= 0.18 || pressed;
+    let dPressed = false, uPressed = false;
+    for (let k=0;k<PAD_DASH.length;k++){ const b = p.buttons[PAD_DASH[k]]; if (b && b.pressed) dPressed = true; }
+    for (let k=0;k<PAD_ULT.length;k++){  const b = p.buttons[PAD_ULT[k]];  if (b && b.pressed) uPressed = true; }
+    if (dPressed && !padDash) dashQueued = true;
+    if (uPressed && !padUlt)  ultQueued  = true;
+    padDash = dPressed; padUlt = uPressed;
+    return m >= 0.18 || dPressed || uPressed;
   }
   return false;
 }
@@ -1100,7 +1188,7 @@ function addShake(m){
   shakeMag = Math.max(shakeMag, m);
 }
 let bossSpawnedCount = 0, bossKills = 0, nextBossTime = 55, bossAlive = false, bossRef = null;
-let nodesHeld = 0;
+let nodesHeld = 0, overloadCount = 0, damageDealt = 0;
 let selectedClass = Store.get('ns_class', 'striker');
 
 let player = null;
@@ -1194,7 +1282,7 @@ function makePool(n, factory){
 }
 
 const PARTS = makePool(1400, () => ({x:0,y:0,vx:0,vy:0,life:0,maxLife:1,size:2,color:'#fff',grav:0,drag:0.96,glow:false}));
-const BULLETS = makePool(600, () => ({x:0,y:0,vx:0,vy:0,radius:4.5,dmg:0,pierceLeft:0,life:0,maxLife:2,ricochetLeft:0,chainLeft:0,hits:[],trailT:0}));
+const BULLETS = makePool(600, () => ({x:0,y:0,vx:0,vy:0,radius:4.5,dmg:0,pierceLeft:0,life:0,maxLife:2,ricochetLeft:0,chainLeft:0,hits:[],trailT:0,drone:false}));
 const EBULLETS = makePool(500, () => ({x:0,y:0,vx:0,vy:0,radius:5,dmg:0,life:0,maxLife:3,homing:false,turnRate:0,color:'#ff5f2e'}));
 const GEMS = makePool(900, () => ({x:0,y:0,vx:0,vy:0,value:1,radius:5,big:false}));
 const TEXTS = makePool(90, () => ({x:0,y:0,str:'',color:'#fff',size:14,life:0,maxLife:0.8,vy:-40}));
@@ -1381,7 +1469,7 @@ function newPlayer(cls){
     projectileCount: s.projectileCount, projectileSpeed: s.projectileSpeed,
     pierce: s.pierce, spreadBase: 0.11, bulletSize: 4.5,
     critChance: s.critChance, critMult: s.critMult,
-    magnetRadius: 95, regen: 0, lifesteal: 0, armor: 0, bigGame: 0,
+    magnetRadius: 95, regen: 0, lifesteal: 0, armor: 0, bigGame: 0, xpMult: 1,
     invT: 0, hitFlashT: 0,
     level: 1, xp: 0, xpToNext: 9,
     facing: 0, aim: 0,
@@ -1390,6 +1478,11 @@ function newPlayer(cls){
             seq: 0, dodgeSeq: -1 },
     orbit:null, nova:null, chain:null, explosive:null,
     ricochet:0, berserk:null, overdrive:null, gravity:null, shield:null,
+    cryo:null, drones:null, execute:0, executeBoom:false,
+    // OVERLOAD: a second active verb. It fills from damage you actually deal, so
+    // playing forward is what buys the panic button rather than turtling for it.
+    ult: { charge:0, max:100, rate:1, wasReady:false },
+    overloadT: 0,
     secondWind:false, secondWindOwned:false,
     frenzyT: 0, overchargeT: 0, surgeT: 0, muzzleT: 0,
     trailT: 0,
@@ -1449,9 +1542,12 @@ const upgradePool = [
     name:()=>'Vampiric Rounds', desc:(p,s)=>'Heal '+(0.35*s).toFixed(2)+'% max HP per kill',
     apply:(p,s)=>{ p.lifesteal += 0.0035*s; } },
 
-  { id:'magnet', icon:'🧲', color:'#05f2f2', max:4, weight:5,
-    name:()=>'Magnetic Field', desc:(p,s)=>'+'+(60*s)+' pickup range',
-    apply:(p,s)=>{ p.magnetRadius += 60*s; } },
+  // Pickup range alone was a non-choice: gems already fly at you and the card
+  // never changed how a fight went. Bolting XP gain onto it makes it a tempo
+  // pick — you take it to reach your next real upgrade faster.
+  { id:'magnet', icon:'🧲', color:'#05f2f2', max:4, weight:6,
+    name:()=>'Magnetic Field', desc:(p,s)=>'+'+(60*s)+' pickup range and +'+(8*s)+'% XP gained',
+    apply:(p,s)=>{ p.magnetRadius += 60*s; p.xpMult += 0.08*s; } },
 
   { id:'pierce', icon:'🎯', color:'#f9e838', max:5, weight:7,
     name:()=>'Piercing Rounds', desc:(p,s)=>'Shots pass through +'+s+' enem'+(s>1?'ies':'y'),
@@ -1465,9 +1561,12 @@ const upgradePool = [
     name:()=>'Weak Point Scan', desc:(p,s)=>'+'+(0.35*s).toFixed(2)+'x crit damage',
     apply:(p,s)=>{ p.critMult += 0.35*s; } },
 
-  { id:'projspeed', icon:'🚀', color:'#05f2f2', max:4, weight:5,
-    name:()=>'Velocity Core', desc:(p,s)=>'+'+compound(1.18,s)+' projectile speed',
-    apply:(p,s)=>{ p.projectileSpeed *= Math.pow(1.18,s); } },
+  // Faster rounds hit more reliably but the card never *felt* like anything, and
+  // it was mostly taken as a Railgun prerequisite. A small damage rider makes it
+  // pull its own weight instead of being a tax on that evolution.
+  { id:'projspeed', icon:'🚀', color:'#05f2f2', max:4, weight:6,
+    name:()=>'Velocity Core', desc:(p,s)=>'+'+compound(1.18,s)+' projectile speed and +'+(6*s)+'% damage',
+    apply:(p,s)=>{ p.projectileSpeed *= Math.pow(1.18,s); p.damage *= (1 + 0.06*s); } },
 
   /* ---------- dash line: the new core verb, so it gets real support ---------- */
   { id:'dashcharge', icon:'🔋', color:'#05f2f2', max:3, weight:8,
@@ -1581,6 +1680,42 @@ const upgradePool = [
     desc:(p,s)=> 'Taking a hit blasts everything around you for '+Math.round(((p.retaliate||0)+55*s))+' damage',
     apply:(p,s)=>{ p.retaliate = (p.retaliate||0) + 55*s; } },
 
+  /* Cryo. The roster's answer to "everything just runs at me": a control line
+     that makes crowds parseable and threads dashes through them, and that stays
+     relevant no matter how much HP the late game piles on. */
+  { id:'cryo', icon:'❄️', color:'#7fd3ff', max:5, weight:7,
+    name:p=> p.cryo ? 'Deep Chill' : 'Cryo Rounds',
+    desc:(p,s)=> p.cryo ? '+'+(11*s)+'% slow and +'+(0.35*s).toFixed(2)+'s duration'
+                        : 'Your hits chill enemies, slowing them for 1.6s',
+    apply:(p,s)=>{
+      if (!p.cryo){ p.cryo = { slow:0.30, dur:1.6, shatter:false }; s -= 1; }
+      if (s > 0){ p.cryo.slow = Math.min(0.72, p.cryo.slow + 0.11*s); p.cryo.dur += 0.35*s; }
+    } },
+
+  /* Drones. Every other system fires from your own position, so builds all
+     played the same shape. A drone puts damage somewhere you are not. */
+  { id:'drone', icon:'🛸', color:'#7ffcff', max:5, weight:7,
+    name:p=> p.drones ? 'Drone Wing' : 'Combat Drone',
+    desc:(p,s)=> p.drones ? '+'+s+' drone'+(s>1?'s':'')+' and +'+compound(1.20,s)+' drone damage'
+                          : 'Deploy a drone that orbits you and fires on its own',
+    apply:(p,s)=>{
+      if (!p.drones){ p.drones = { count:1, dmg:11, rate:1.15, timer:0, ang:0, radius:58, pierce:0 }; s -= 1; }
+      if (s > 0){ p.drones.count += s; p.drones.dmg *= Math.pow(1.20,s); }
+    } },
+
+  /* Execute. A percentage-of-max-HP threshold is the one damage stat that never
+     falls off the enemy scaling curve, and popping a wounded pack is the single
+     most satisfying thing a survivor build can do. */
+  { id:'execute', icon:'☠️', color:'#ff2ea6', max:4, weight:6,
+    name:p=> p.execute ? 'Cull Protocol' : 'Culling Field',
+    desc:(p,s)=> 'Instantly destroy non-boss enemies below '+Math.round((p.execute + 0.06*s)*100)+'% HP (half that for elites)',
+    apply:(p,s)=>{ p.execute += 0.06*s; } },
+
+  { id:'ultrate', icon:'🔮', color:'#c86bff', max:4, weight:6,
+    name:()=>'Capacitor Bank',
+    desc:(p,s)=>'+'+(28*s)+'% Overload charge rate',
+    apply:(p,s)=>{ p.ult.rate += 0.28*s; } },
+
   { id:'secondwind', icon:'💾', color:'#39ff88', max:3, weight:6, noStack:true,
     name:()=>'Emergency Reboot',
     desc:()=>'Cheat death once: revive at 40% HP with a clearing shockwave',
@@ -1622,6 +1757,24 @@ const upgradePool = [
     desc:()=>'Detonations become huge and set the ground burning',
     available:p=> !p.evolved.evo_apocalypse && (p.up.explosive||0) >= 3 && (p.up.multishot||0) >= 2,
     apply:p=>{ p.explosive.radius += 55; p.explosive.dmgPct = Math.min(1.4, p.explosive.dmgPct + 0.5); p.explosive.burn = true; } },
+
+  { id:'evo_absolutezero', icon:'🧊', color:'#7fd3ff', evo:true, max:1,
+    name:()=>'ABSOLUTE ZERO',
+    desc:()=>'Chill locks enemies down and chilled targets take +35% damage',
+    available:p=> !p.evolved.evo_absolutezero && (p.up.cryo||0) >= 3 && (p.up.nova||0) >= 2,
+    apply:p=>{ p.cryo.slow = Math.max(p.cryo.slow, 0.78); p.cryo.dur += 1.2; p.cryo.shatter = true; } },
+
+  { id:'evo_swarm', icon:'🐝', color:'#7ffcff', evo:true, max:1,
+    name:()=>'DRONE SWARM',
+    desc:()=>'Double your drones, +70% drone fire rate, drone rounds pierce',
+    available:p=> !p.evolved.evo_swarm && (p.up.drone||0) >= 4,
+    apply:p=>{ p.drones.count *= 2; p.drones.rate *= 1.7; p.drones.pierce += 1; p.drones.radius += 16; p.drones.evo = true; } },
+
+  { id:'evo_guillotine', icon:'⚰️', color:'#ff2ea6', evo:true, max:1,
+    name:()=>'GUILLOTINE PROTOCOL',
+    desc:()=>'+14% cull threshold, and culled enemies detonate — kills cascade',
+    available:p=> !p.evolved.evo_guillotine && (p.up.execute||0) >= 3 && (p.up.crit||0) >= 3,
+    apply:p=>{ p.execute += 0.14; p.executeBoom = true; } },
 ];
 const upgradeById = {};
 for (const u of upgradePool) upgradeById[u.id] = u;
@@ -1735,14 +1888,22 @@ const ENEMY_TYPES = {
 // stays a difficulty problem rather than a frame-rate problem
 const MAX_ENEMIES = 200;
 
+/* Elites were bullet sponges rather than threats: the ARMORED mod stacked a 4.4x
+   HP multiplier on top of the 2.6x elite base AND 45% damage resistance, which
+   read as roughly 11x effective HP — long enough that the correct play was to
+   walk away. Leaner bodies with the same damage output make them a fight you
+   choose to take. */
 const ELITE_MODS = [
-  { key:'swift',    name:'SWIFT',    color:'#f9e838', hp:2.2, speed:1.62, dmg:1.0 },
-  { key:'armored',  name:'ARMORED',  color:'#8fb6d6', hp:4.4, speed:0.80, dmg:1.15, dr:0.45 },
-  { key:'volatile', name:'VOLATILE', color:'#ff8a2e', hp:2.6, speed:1.05, dmg:1.2 },
-  { key:'siphon',   name:'SIPHON',   color:'#39ff88', hp:3.0, speed:0.95, dmg:1.0, heals:true },
+  { key:'swift',    name:'SWIFT',    color:'#f9e838', hp:2.0, speed:1.62, dmg:1.0 },
+  { key:'armored',  name:'ARMORED',  color:'#8fb6d6', hp:3.4, speed:0.80, dmg:1.15, dr:0.34 },
+  { key:'volatile', name:'VOLATILE', color:'#ff8a2e', hp:2.3, speed:1.05, dmg:1.2 },
+  { key:'siphon',   name:'SIPHON',   color:'#39ff88', hp:2.6, speed:0.95, dmg:1.0, heals:true },
 ];
 
-const hpScale  = t => 1 + t*0.0135 + Math.pow(t/78, 1.9);
+/* Slightly steeper early, meaningfully gentler past the six-minute mark. The old
+   curve's t^1.9 term ran away hard enough that long runs ended at a wall the
+   build could never have out-scaled, rather than on a mistake you could name. */
+const hpScale  = t => 1 + t*0.016 + Math.pow(t/86, 1.85);
 const dmgScale = t => 1 + t*0.005  + Math.pow(t/200, 1.35);
 // late-game mobs get fast enough to actually catch a boots-stacked player
 const spdScale = t => 1 + Math.min(0.36, t*0.00055);
@@ -1818,7 +1979,7 @@ function spawnEnemy(typeKey, opts){
   let xp = base.xp;
 
   if (eliteMod){
-    hp *= 2.6 * eliteMod.hp;
+    hp *= 2.2 * eliteMod.hp;
     dmg *= 1.35 * eliteMod.dmg;
     speed *= eliteMod.speed;
     radius *= 1.28;
@@ -1838,6 +1999,8 @@ function spawnEnemy(typeKey, opts){
     fireTimer: rand(0.5,1.8),
     hitFlash: 0, touchCd: 0, orbitCd: 0,
     stun: 0, burn: 0, burnDps: 0,
+    slowT: 0, slowAmt: 0, _slow: 1,
+    windup: 0, aimAng: 0,
     elite: !!eliteMod, eliteMod, dr: eliteMod && eliteMod.dr ? eliteMod.dr : 0,
     weaveDir: Math.random() < 0.5 ? 1 : -1, weaveT: rand(1.5,3.5),
     fuse: -1, ring: rand(0,TAU),
@@ -1851,11 +2014,15 @@ function spawnEnemy(typeKey, opts){
 }
 
 /* ============================= BOSSES ============================= */
+/* Every boss used to be drawn as the same white hexagon — the `glow` colour only
+   reached the name plate and the death particles, so at a glance you could not
+   tell which of four completely different fights had just walked in. Shape and
+   body colour now carry the identity, the way they do for the regular roster. */
 const BOSS_TYPES = {
-  sentinel:    { name:'Sentinel',     glow:'#ff2ea6', radius:46, speedMult:1,    hpMult:1,   dmgMult:1,    unlockAt:0 },
-  juggernaut:  { name:'Juggernaut',   glow:'#ff8a2e', radius:56, speedMult:0.7,  hpMult:1.7, dmgMult:1.7,  unlockAt:1 },
-  swarmcaller: { name:'Swarm Caller', glow:'#c86bff', radius:42, speedMult:0.85, hpMult:0.9, dmgMult:0.85, unlockAt:1 },
-  voidreaper:  { name:'Void Reaper',  glow:'#39ff88', radius:44, speedMult:0.8,  hpMult:1.3, dmgMult:1.1,  unlockAt:3 },
+  sentinel:    { name:'Sentinel',     glow:'#ff2ea6', shape:'hex',   radius:46, speedMult:1,    hpMult:1,   dmgMult:1,    unlockAt:0 },
+  juggernaut:  { name:'Juggernaut',   glow:'#ff8a2e', shape:'square',radius:56, speedMult:0.7,  hpMult:1.7, dmgMult:1.7,  unlockAt:1 },
+  swarmcaller: { name:'Swarm Caller', glow:'#c86bff', shape:'pent',  radius:42, speedMult:0.85, hpMult:0.9, dmgMult:0.85, unlockAt:1 },
+  voidreaper:  { name:'Void Reaper',  glow:'#39ff88', shape:'star',  radius:44, speedMult:0.8,  hpMult:1.3, dmgMult:1.1,  unlockAt:3 },
 };
 
 function spawnBoss(){
@@ -1894,9 +2061,10 @@ function spawnBoss(){
     speed: 46*cfg.speedMult, baseSpeed: 46*cfg.speedMult,
     hp: baseHp*cfg.hpMult, maxHp: baseHp*cfg.hpMult,
     dmg: baseDmg*cfg.dmgMult, xp: Math.round(70 + idx*18 + elapsed*0.35),
-    color:'#fff', baseColor:'#fff', glow: cfg.glow,
-    shape:'hex', ranged: typeKey !== 'juggernaut', splits:false, weaves:false, bomber:false,
+    color: cfg.glow, baseColor: cfg.glow, glow: cfg.glow,
+    shape: cfg.shape, ranged: typeKey !== 'juggernaut', splits:false, weaves:false, bomber:false,
     fireTimer: 1.6, hitFlash:0, touchCd:0, orbitCd:0, stun:0, burn:0, burnDps:0,
+    slowT:0, slowAmt:0, _slow:1, windup:0, aimAng:0,
     elite:false, eliteMod:null, dr:0, ring:0,
     boss:true, dead:false,
     enrage: 0, ageT: 0, phase: 0,
@@ -2143,6 +2311,19 @@ let dmgTextBudget = 0;
 function comboMult(){ return 1 + Math.min(comboCount, 60) * 0.05; }
 function addScore(n){ score += Math.round(n); }
 
+/* Directional damage feedback. A full-screen red flash tells you that you got
+   hit; it never tells you what hit you, which is the only part you can act on.
+   A short arc on the side the damage came from turns "that felt unfair" into
+   "the shooter is behind me". */
+const dmgDirs = [];
+function markHitDir(sx, sy){
+  if (sx === undefined || !player) return;
+  const dx = sx - player.x, dy = sy - player.y;
+  if (dx*dx + dy*dy < 1) return;
+  dmgDirs.push({ ang: Math.atan2(dy, dx), life:0, maxLife:0.85 });
+  if (dmgDirs.length > 5) dmgDirs.shift();
+}
+
 function healPlayer(n){
   const before = player.health;
   player.health = Math.min(player.maxHealth, player.health + n);
@@ -2171,9 +2352,27 @@ function nearestEnemy(x, y, maxD, exclude){
    you want dead" is a real decision instead of a cosmetic one. The bias is mild
    (a target dead ahead scores ~30% better) so it never fights you over the
    obvious threat two metres away. */
+/* Target STICKINESS. Re-scoring from scratch on every shot meant a fast gun
+   flickered between two equidistant mobs and killed neither, and the flicker got
+   worse exactly when the screen got busiest. The target is now re-picked on a
+   fixed cadence and otherwise held as long as it is alive and in range, which
+   both stabilises the aim and drops the full 200-enemy scan to ~7 a second. */
+let stickyTarget = null, retargetT = 0;
+const RETARGET_INTERVAL = 0.14;
+
 function acquireTarget(){
-  let best = null, bestScore = Infinity;
   const acq = Math.max(950, Math.hypot(W,H)*0.52);
+  if (stickyTarget && (stickyTarget.dead || dist2(player.x, player.y, stickyTarget.x, stickyTarget.y) > acq*acq)){
+    stickyTarget = null;
+  }
+  if (stickyTarget && retargetT > 0) return stickyTarget;
+  retargetT = RETARGET_INTERVAL;
+  stickyTarget = scanForTarget(acq);
+  return stickyTarget;
+}
+
+function scanForTarget(acq){
+  let best = null, bestScore = Infinity;
   const maxD2 = acq*acq;
   const mvx = player.mvx, mvy = player.mvy;
   const mvLen = Math.hypot(mvx, mvy);
@@ -2222,9 +2421,81 @@ function triggerExplosion(x, y, dmg, radius, excludeEnemy, color){
    Berserk is a weapon perk (its card says weapon damage); Surge is the reward
    for a perfect dash-dodge and lifts everything you put out. */
 function surgeMult(){ return player.surgeT > 0 ? 1.35 : 1; }
-function playerDmgMult(){
-  const berserk = player.berserk ? 1 + (1 - player.health/player.maxHealth)*player.berserk.maxBonus : 1;
-  return berserk * surgeMult();
+function berserkMult(){
+  return player.berserk ? 1 + (1 - player.health/player.maxHealth)*player.berserk.maxBonus : 1;
+}
+function playerDmgMult(){ return berserkMult() * surgeMult(); }
+
+// shared by the loadout screen and the Overload blast, so the ultimate scales
+// with whatever build you actually assembled instead of a flat number
+function estimatedDPS(){
+  const p = player;
+  return p.damage * p.fireRate * p.projectileCount * (1 + p.critChance*(p.critMult-1));
+}
+
+/* ---------- OVERLOAD ----------
+   The dash is defensive and the gun is automatic, which left exactly one button
+   in a game about pressure. Overload is the offensive counterpart: it fills from
+   damage dealt (so it rewards leaning in, not hiding), and it cashes out as a
+   detonation that also wipes nearby enemy fire — an earned escape from the one
+   death that always felt cheap, being sealed in by a bullet ring. */
+function addUlt(n){
+  const u = player.ult;
+  if (u.charge >= u.max) return;
+  u.charge = Math.min(u.max, u.charge + n * u.rate);
+  if (u.charge >= u.max && !u.wasReady){
+    u.wasReady = true;
+    Audio_.ultReady();
+    spawnText(player.x, player.y-46, 'OVERLOAD READY', '#f9e838', 18, 1.2);
+    if (overloadCount === 0) showToast('OVERLOAD READY — press E to detonate');
+  }
+}
+
+function triggerOverload(){
+  const u = player.ult;
+  if (u.charge < u.max) return;
+  u.charge = 0;
+  u.wasReady = false;
+  overloadCount++;
+
+  const radius = 380;
+  const dmg = (estimatedDPS() * 2.4 + 220) * playerDmgMult();
+
+  Audio_.overload();
+  addShake(22);
+  hitStop = Math.max(hitStop, 0.13);
+  novaRings.push({ x:player.x, y:player.y, r:0, max:radius, life:0, maxLife:0.55 });
+  if (novaRings.length > 8) novaRings.shift();
+  burst(player.x, player.y, '#f9e838', 70, {minSpd:180,maxSpd:820,minLife:0.35,maxLife:0.9,minSize:2,maxSize:5});
+  spawnText(player.x, player.y-44, 'OVERLOAD', '#f9e838', 26, 1.4);
+
+  gridQuery(player.x, player.y, radius, qA);
+  for (let i=0;i<qA.length;i++){
+    const e = qA[i];
+    if (e.dead) continue;
+    if (dist2(player.x, player.y, e.x, e.y) < radius*radius){
+      damageEnemy(e, e.boss ? dmg*0.4 : dmg, true);
+    }
+  }
+
+  // sweep the screen clear of incoming fire — this is the part that makes it a
+  // real answer to a bullet-hell phase rather than just extra damage
+  const clr = radius + 180, clr2 = clr*clr;
+  const eb = EBULLETS.items;
+  for (let i=0;i<eb.length;i++){
+    const b = eb[i];
+    if (!b.active) continue;
+    if (dist2(b.x, b.y, player.x, player.y) < clr2){
+      burst(b.x, b.y, b.color, 3, {minSpd:40,maxSpd:160,minLife:0.12,maxLife:0.28,minSize:1.2,maxSize:2.2});
+      b.active = false;
+    }
+  }
+
+  player.overloadT = Math.max(player.overloadT, 5);
+  player.surgeT = Math.max(player.surgeT, 5);
+  player.dash.charges = player.dash.maxCharges;
+  player.invT = Math.max(player.invT, 0.5);
+  contactGrace = Math.max(contactGrace, 0.5);
 }
 
 /* --- player weapon --- */
@@ -2273,6 +2544,7 @@ function firePlayerWeapon(){
     b.ricochetLeft = player.ricochet || 0;
     b.chainLeft = player.chain ? player.chain.jumps : 0;
     b.trailT = 0;
+    b.drone = false;
     b.hits.length = 0;
   }
 
@@ -2292,9 +2564,33 @@ function damageEnemy(e, dmg, isCrit){
   if (e.dr) dmg *= (1 - e.dr);
   if (player.bigGame && (e.boss || e.elite)) dmg *= (1 + player.bigGame);
   if (freezeT > 0 && !e.boss) dmg *= 1.3;          // frozen things shatter
+  const cryo = player.cryo;
+  if (cryo && cryo.shatter && e.slowT > 0) dmg *= 1.35;
 
   e.hp -= dmg;
   e.hitFlash = 0.09;
+
+  // Overload fills on the FRACTION of a target you removed, not on raw numbers,
+  // so it charges at the same pace for a 13-damage Striker and a 32-damage
+  // Reaper — the meter measures progress, not build strength.
+  damageDealt += dmg;
+  addUlt(clamp(dmg / e.maxHp, 0, 1) * (e.boss ? 35 : e.elite ? 4.5 : 1.6));
+
+  if (cryo){
+    e.slowT = Math.max(e.slowT, cryo.dur);
+    e.slowAmt = Math.max(e.slowAmt, cryo.slow);
+  }
+
+  // cull: a max-HP threshold is the only damage stat that keeps pace with the
+  // enemy scaling curve, and popping a wounded pack is the best feeling here
+  if (player.execute > 0 && !e.boss && e.hp > 0){
+    if (e.hp <= e.maxHp * player.execute * (e.elite ? 0.5 : 1)){
+      e.hp = 0;
+      Audio_.execute();
+      burst(e.x, e.y, '#ff2ea6', 16, {minSpd:90,maxSpd:320,minLife:0.2,maxLife:0.45,minSize:1.6,maxSize:3.4});
+      if (player.executeBoom) triggerExplosion(e.x, e.y, e.maxHp*0.4, 118, e, '#ff2ea6');
+    }
+  }
 
   burst(e.x, e.y, isCrit ? '#f9e838' : '#ffffff', isCrit ? 5 : 2,
         {minSpd:60,maxSpd:180,minLife:0.14,maxLife:0.3,minSize:1.4,maxSize:2.6});
@@ -2345,13 +2641,13 @@ function killEnemy(e){
   if (e.bomber){
     triggerExplosion(e.x, e.y, e.dmg*1.5, 92, e, '#ff5f2e');
     burst(e.x, e.y, '#ff5f2e', 26, {minSpd:120,maxSpd:420,minLife:0.25,maxLife:0.55});
-    if (dist2(player.x,player.y,e.x,e.y) < 92*92) damagePlayer(e.dmg*1.1);
+    if (dist2(player.x,player.y,e.x,e.y) < 92*92) damagePlayer(e.dmg*1.1, false, e.x, e.y);
   }
   if (e.elite){
     if (e.eliteMod.key === 'volatile'){
       triggerExplosion(e.x, e.y, e.dmg*2.2, 165, e, '#ff8a2e');
       burst(e.x, e.y, '#ff8a2e', 40, {minSpd:150,maxSpd:520,minLife:0.3,maxLife:0.7});
-      if (dist2(player.x,player.y,e.x,e.y) < 165*165) damagePlayer(e.dmg*1.5);
+      if (dist2(player.x,player.y,e.x,e.y) < 165*165) damagePlayer(e.dmg*1.5, false, e.x, e.y);
     }
     spawnPickup(e.x, e.y);
     spawnGem(e.x + rand(-12,12), e.y + rand(-12,12), Math.round(e.xp*0.5));
@@ -2384,9 +2680,10 @@ function killEnemy(e){
    melee-range builds stay viable. Its rate limit is the per-enemy touch
    cooldown plus contactGrace, both owned by the caller. */
 let contactGrace = 0;
-function contactDamage(amount){
+function contactDamage(amount, sx, sy){
   if (state !== 'playing') return;
   if (player.dash.t > 0) return;
+  markHitDir(sx, sy);
 
   if (player.shield && player.shield.charges > 0 && amount >= player.maxHealth*0.05){
     player.shield.charges--;
@@ -2411,10 +2708,11 @@ function contactDamage(amount){
   if (player.health <= 0) resolveDeath();
 }
 
-function damagePlayer(amount, ignoreIFrames){
+function damagePlayer(amount, ignoreIFrames, sx, sy){
   if (state !== 'playing') return;
   if (player.dash.t > 0) return;                  // dashing is a real dodge
   if (player.invT > 0 && !ignoreIFrames) return;
+  markHitDir(sx, sy);
 
   if (player.shield && player.shield.charges > 0){
     player.shield.charges--;
@@ -2477,7 +2775,7 @@ function retaliateBlast(){
 }
 
 function grantXP(amount){
-  player.xp += amount;
+  player.xp += amount * player.xpMult;
   let guard = 0;
   while (player.xp >= player.xpToNext && guard++ < 50){
     player.xp -= player.xpToNext;
@@ -2555,9 +2853,18 @@ function updatePlayer(dt){
   player.mvx = mvx; player.mvy = mvy;
 
   if (dashQueued){ dashQueued = false; tryDash(); }
+  if (ultQueued){
+    ultQueued = false;
+    if (player.ult.charge >= player.ult.max) triggerOverload();
+    else Audio_.dashFail();
+  }
+  retargetT -= dt;
+  addUlt(dt * 0.9);              // slow trickle so a quiet patch still builds it
 
   /* ---- movement ---- */
-  const speedMult = (overdriveActive ? 1 + player.overdrive.speedBonus : 1) * (player.frenzyT > 0 ? 1.2 : 1);
+  const speedMult = (overdriveActive ? 1 + player.overdrive.speedBonus : 1)
+                  * (player.frenzyT > 0 ? 1.2 : 1)
+                  * (player.overloadT > 0 ? 1.18 : 1);
 
   if (d.t > 0){
     d.t -= dt;
@@ -2604,6 +2911,7 @@ function updatePlayer(dt){
   if (player.hitFlashT > 0) player.hitFlashT -= dt;
   if (player.frenzyT > 0)   player.frenzyT -= dt;
   if (player.surgeT > 0)    player.surgeT -= dt;
+  if (player.overloadT > 0) player.overloadT -= dt;
   if (player.muzzleT > 0)   player.muzzleT -= dt;
   if (player.regen > 0)     player.health = Math.min(player.maxHealth, player.health + player.maxHealth*player.regen*dt);
 
@@ -2623,11 +2931,44 @@ function updatePlayer(dt){
   }
 
   /* ---- weapon ---- */
-  const fireRateMult = (overdriveActive ? 1 + player.overdrive.fireRateBonus : 1) * (player.frenzyT > 0 ? 1.9 : 1);
+  const fireRateMult = (overdriveActive ? 1 + player.overdrive.fireRateBonus : 1)
+                     * (player.frenzyT > 0 ? 1.9 : 1)
+                     * (player.overloadT > 0 ? 1.8 : 1);
   player.fireTimer -= dt;
   if (player.fireTimer <= 0){
     firePlayerWeapon();
     player.fireTimer = 1 / Math.max(0.05, player.fireRate * fireRateMult);
+  }
+
+  /* ---- combat drones ----
+     Every other system in the game fires from wherever you are standing, so
+     every build ended up playing the same shape. Drones put damage somewhere
+     you are not, which is what makes them worth a card slot. */
+  if (player.drones){
+    const dr = player.drones;
+    dr.ang += 1.05 * dt;
+    dr.timer -= dt;
+    if (dr.timer <= 0){
+      dr.timer = 1 / Math.max(0.1, dr.rate * fireRateMult);
+      const sp = player.projectileSpeed * 0.85;
+      const dmg = dr.dmg * playerDmgMult();
+      for (let i=0;i<dr.count;i++){
+        const a = dr.ang + (TAU/dr.count)*i;
+        const ox = player.x + Math.cos(a)*dr.radius, oy = player.y + Math.sin(a)*dr.radius;
+        const t = nearestEnemy(ox, oy, 470, null);
+        if (!t) continue;
+        const tof = dist(ox, oy, t.x, t.y) / sp;
+        const ang = Math.atan2(t.y + (t._vy||0)*tof - oy, t.x + (t._vx||0)*tof - ox);
+        const b = BULLETS.get();
+        b.x = ox; b.y = oy;
+        b.vx = Math.cos(ang)*sp; b.vy = Math.sin(ang)*sp;
+        b.radius = 3.6; b.dmg = dmg;
+        b.pierceLeft = dr.pierce; b.ricochetLeft = 0;
+        b.chainLeft = 0; b.life = 0; b.maxLife = 1.7;
+        b.trailT = 0; b.drone = true;
+        b.hits.length = 0;
+      }
+    }
   }
 
   /* ---- orbiting blades ---- */
@@ -2700,7 +3041,7 @@ function updatePlayer(dt){
   if (contactGrace > 0) contactGrace -= dt;
 
   if (d.t <= 0 && player.invT <= 0 && contactGrace <= 0){
-    let top = 0, sum = 0, n = 0;
+    let top = 0, sum = 0, n = 0, topX = 0, topY = 0;
     gridQuery(player.x, player.y, player.radius + 44, qA);
     for (let i=0;i<qA.length;i++){
       const e = qA[i];
@@ -2711,7 +3052,7 @@ function updatePlayer(dt){
         e.touchCd = 0.7;
         const dmg = e.dmg * (e.boss ? 1.3 : 1);
         sum += dmg;
-        if (dmg > top) top = dmg;
+        if (dmg > top){ top = dmg; topX = e.x; topY = e.y; }
         n++;
         // shove the attacker off so a swarm cannot pin you inside itself
         if (!e.boss){
@@ -2725,7 +3066,7 @@ function updatePlayer(dt){
     if (n > 0){
       const total = Math.min(top + (sum - top)*0.30, player.maxHealth*0.26);
       contactGrace = 0.32;
-      contactDamage(total);
+      contactDamage(total, topX, topY);
     }
   }
 }
@@ -2745,6 +3086,12 @@ function detonateNova(x, y, dmg, radius){
 const novaRings = [];
 
 /* ============================= UPDATE: ENEMIES ============================= */
+/* Ranged mobs used to fire with no tell at all: the first sign a shooter existed
+   was the bullet already on top of you, which is the one thing in the game that
+   read as unfair rather than unlucky. A short barrel flare before every shot
+   costs them nothing and makes their damage something you can answer. */
+const WINDUP = 0.45;
+
 function updateEnemies(dt){
   const n = enemies.length;   // cached: splitters push new shards mid-loop
   for (let i=0;i<n;i++){
@@ -2762,8 +3109,19 @@ function updateEnemies(dt){
       if (e.dead) continue;
       if (Math.random() < dt*8) addParticle(e.x+rand(-8,8), e.y+rand(-8,8), rand(-15,15), rand(-50,-15), 0.4, rand(1.5,3), '#ff8a2e', 0, 0.95);
     }
-    if (e.stun > 0){ e.stun -= dt; e._vx = 0; e._vy = 0; continue; }
-    if (freezeT > 0 && !e.boss){ e._vx = 0; e._vy = 0; continue; }
+    // a held telegraph would keep glowing while its owner is frozen mid-aim
+    if (e.stun > 0){ e.stun -= dt; e._vx = 0; e._vy = 0; e.windup = 0; continue; }
+    if (freezeT > 0 && !e.boss){ e._vx = 0; e._vy = 0; e.windup = 0; continue; }
+
+    // chill: bosses resist half of it so cryo never trivialises a boss fight
+    if (e.slowT > 0){
+      e.slowT -= dt;
+      e._slow = 1 - e.slowAmt * (e.boss ? 0.5 : 1);
+    } else {
+      e._slow = 1;
+      e.slowAmt = 0;
+    }
+    const espd = e.speed * e._slow;
 
     const dx = player.x - e.x, dy = player.y - e.y;
     const d = Math.hypot(dx,dy) || 1;
@@ -2801,14 +3159,14 @@ function updateEnemies(dt){
         if (e.fuse <= 0){
           triggerExplosion(e.x, e.y, e.dmg*1.6, 105, e, '#ff5f2e');
           burst(e.x, e.y, '#ff5f2e', 34, {minSpd:140,maxSpd:480,minLife:0.25,maxLife:0.6});
-          if (dist2(player.x,player.y,e.x,e.y) < 105*105) damagePlayer(e.dmg*1.35);
+          if (dist2(player.x,player.y,e.x,e.y) < 105*105) damagePlayer(e.dmg*1.35, false, e.x, e.y);
           addShake(7);
           e.dead = true;
           continue;
         }
       } else {
-        e.x += (dx/d) * e.speed * dt;
-        e.y += (dy/d) * e.speed * dt;
+        e.x += (dx/d) * espd * dt;
+        e.y += (dy/d) * espd * dt;
         if (d < e.radius + player.radius + 34){ e.fuse = 0.65; Audio_.warn(); }
       }
     }
@@ -2819,28 +3177,32 @@ function updateEnemies(dt){
       const desired = 190;
       const radial = clamp((d - desired)/70, -1, 1);
       const tx = -dy/d, ty = dx/d;
-      e.x += ((dx/d)*radial*0.85 + tx*e.weaveDir*0.9) * e.speed * dt;
-      e.y += ((dy/d)*radial*0.85 + ty*e.weaveDir*0.9) * e.speed * dt;
+      e.x += ((dx/d)*radial*0.85 + tx*e.weaveDir*0.9) * espd * dt;
+      e.y += ((dy/d)*radial*0.85 + ty*e.weaveDir*0.9) * espd * dt;
       e.fireTimer -= dt;
+      e.aimAng = Math.atan2(dy,dx);
+      e.windup = d < 620 ? clamp(1 - e.fireTimer/WINDUP, 0, 1) : 0;
       if (e.fireTimer <= 0 && d < 620){
         e.fireTimer = rand(2.0,3.0);
-        fireEnemyBullet(e, Math.atan2(dy,dx), 250, e.dmg*0.75, 5, FOE_SHOT);
+        fireEnemyBullet(e, e.aimAng, 250, e.dmg*0.75, 5, FOE_SHOT);
       }
     }
     else if (e.ranged){
       const desired = 230;
       const moveScale = clamp((d - desired)/60, -1, 1);
-      e.x += (dx/d) * e.speed * moveScale * dt;
-      e.y += (dy/d) * e.speed * moveScale * dt;
+      e.x += (dx/d) * espd * moveScale * dt;
+      e.y += (dy/d) * espd * moveScale * dt;
       e.fireTimer -= dt;
+      e.aimAng = Math.atan2(dy,dx);
+      e.windup = clamp(1 - e.fireTimer/WINDUP, 0, 1);
       if (e.fireTimer <= 0){
         e.fireTimer = rand(1.7,2.5);
-        fireEnemyBullet(e, Math.atan2(dy,dx), 270, e.dmg, 5, FOE_SHOT);
+        fireEnemyBullet(e, e.aimAng, 270, e.dmg, 5, FOE_SHOT);
       }
     }
     else {
-      e.x += (dx/d) * e.speed * dt;
-      e.y += (dy/d) * e.speed * dt;
+      e.x += (dx/d) * espd * dt;
+      e.y += (dy/d) * espd * dt;
     }
 
     if (e.eliteMod && e.eliteMod.heals){
@@ -2905,6 +3267,7 @@ function bossPhaseShift(e){
 
 function updateBoss(e, dt, dx, dy, d){
   const enrageDmg = 1 + e.enrage*0.5;
+  const bspd = e.speed * e._slow;
 
   const frac = e.hp / e.maxHp;
   const wantPhase = frac <= 0.30 ? 2 : (frac <= 0.60 ? 1 : 0);
@@ -2912,7 +3275,7 @@ function updateBoss(e, dt, dx, dy, d){
 
   if (e.bossType === 'juggernaut'){
     if (e.chargeState === 'idle'){
-      e.x += (dx/d)*e.speed*dt; e.y += (dy/d)*e.speed*dt;
+      e.x += (dx/d)*bspd*dt; e.y += (dy/d)*bspd*dt;
       e.chargeTimer -= dt;
       if (e.chargeTimer <= 0){
         e.chargeState = 'telegraph'; e.chargeTimer = 0.62 - e.enrage*0.18;
@@ -2923,27 +3286,27 @@ function updateBoss(e, dt, dx, dy, d){
       e.chargeTimer -= dt;
       if (e.chargeTimer <= 0){ e.chargeState = 'dash'; e.chargeTimer = 0.45; }
     } else if (e.chargeState === 'dash'){
-      e.x += e.chargeDirX*e.speed*6.5*dt; e.y += e.chargeDirY*e.speed*6.5*dt;
+      e.x += e.chargeDirX*bspd*6.5*dt; e.y += e.chargeDirY*bspd*6.5*dt;
       addParticle(e.x, e.y, rand(-30,30), rand(-30,30), 0.3, rand(3,6), '#ff8a2e', 0, 0.92);
       e.chargeTimer -= dt;
       if (!e.chargeHit && d < e.radius + player.radius + 12){
         e.chargeHit = true;
-        damagePlayer(e.dmg*1.5*enrageDmg);
+        damagePlayer(e.dmg*1.5*enrageDmg, false, e.x, e.y);
         addShake(14);
         player.x = clamp(player.x - e.chargeDirX*80, player.radius, WORLD_W-player.radius);
         player.y = clamp(player.y - e.chargeDirY*80, player.radius, WORLD_H-player.radius);
       }
       if (e.chargeTimer <= 0){ e.chargeState = 'recover'; e.chargeTimer = 1.0 - e.enrage*0.4; }
     } else {
-      e.x += (dx/d)*e.speed*0.15*dt; e.y += (dy/d)*e.speed*0.15*dt;
+      e.x += (dx/d)*bspd*0.15*dt; e.y += (dy/d)*bspd*0.15*dt;
       e.chargeTimer -= dt;
       if (e.chargeTimer <= 0){ e.chargeState = 'idle'; e.chargeTimer = rand(3.2,4.6) * (1 - e.enrage*0.4); }
     }
   }
   else if (e.bossType === 'swarmcaller'){
     const moveScale = clamp((d - 240)/60, -1, 1);
-    e.x += (dx/d)*e.speed*moveScale*dt;
-    e.y += (dy/d)*e.speed*moveScale*dt;
+    e.x += (dx/d)*bspd*moveScale*dt;
+    e.y += (dy/d)*bspd*moveScale*dt;
     e.summonTimer -= dt;
     if (e.summonTimer <= 0 && enemies.length < 170){
       e.summonTimer = rand(5.0,7.0) * (1 - e.enrage*0.4);
@@ -2964,8 +3327,8 @@ function updateBoss(e, dt, dx, dy, d){
   }
   else if (e.bossType === 'voidreaper'){
     const moveScale = clamp((d - 290)/60, -1, 1);
-    e.x += (dx/d)*e.speed*moveScale*dt;
-    e.y += (dy/d)*e.speed*moveScale*dt;
+    e.x += (dx/d)*bspd*moveScale*dt;
+    e.y += (dy/d)*bspd*moveScale*dt;
     e.fireTimer -= dt;
     if (e.fireTimer <= 0){
       e.fireTimer = rand(2.4,3.2) * (1 - e.enrage*0.35);
@@ -2994,8 +3357,8 @@ function updateBoss(e, dt, dx, dy, d){
   }
   else { // sentinel — bullet-hell ring
     const moveScale = clamp((d - 260)/60, -1, 1);
-    e.x += (dx/d)*e.speed*moveScale*dt;
-    e.y += (dy/d)*e.speed*moveScale*dt;
+    e.x += (dx/d)*bspd*moveScale*dt;
+    e.y += (dy/d)*bspd*moveScale*dt;
     e.fireTimer -= dt;
     if (e.fireTimer <= 0){
       e.fireTimer = 1.9 * (1 - e.enrage*0.35);
@@ -3147,7 +3510,7 @@ function updateEnemyBullets(dt){
 
     const rr = b.radius + player.radius;
     if (dist2(b.x,b.y,player.x,player.y) < rr*rr){
-      damagePlayer(b.dmg);
+      damagePlayer(b.dmg, false, b.x - b.vx*0.25, b.y - b.vy*0.25);
       burst(b.x, b.y, b.color, 8, {minSpd:60,maxSpd:200,minLife:0.15,maxLife:0.35});
       b.active = false;
       continue;
@@ -3160,17 +3523,22 @@ function updateEnemyBullets(dt){
 function updateGems(dt){
   const gDamp = Math.pow(0.9, dt*60);
   const items = GEMS.items;
+  const mr = player.magnetRadius, mr2 = mr*mr;
+  // squared-distance gate first: this ran a sqrt for every live gem every frame
+  // purely to decide that a gem two thousand pixels away was still far away
   for (let i=0;i<items.length;i++){
     const g = items[i];
     if (!g.active) continue;
-    const d = dist(player.x, player.y, g.x, g.y);
-    if (d < player.magnetRadius || g.magnetized){
-      const pull = g.magnetized ? 900 : clamp(1-(d/player.magnetRadius), 0.18, 1) * 700;
-      const nx = (player.x-g.x)/(d||1), ny = (player.y-g.y)/(d||1);
-      g.vx = nx*pull; g.vy = ny*pull;
+    const ddx = player.x - g.x, ddy = player.y - g.y;
+    const d2 = ddx*ddx + ddy*ddy;
+    if (d2 < mr2 || g.magnetized){
+      const d = Math.sqrt(d2) || 1;
+      const pull = g.magnetized ? 900 : clamp(1-(d/mr), 0.18, 1) * 700;
+      g.vx = (ddx/d)*pull; g.vy = (ddy/d)*pull;
     } else { g.vx *= gDamp; g.vy *= gDamp; }
     g.x += g.vx*dt; g.y += g.vy*dt;
-    if (d < player.radius + g.radius + 6){
+    const pr = player.radius + g.radius + 6;
+    if (d2 < pr*pr){
       g.active = false; g.magnetized = false;
       grantXP(g.value);
       addScore(g.value * 2);
@@ -3200,12 +3568,16 @@ function updatePickups(dt){
     pk.life += dt;
     if (pk.life > 75){ pk.dead = true; continue; }
     // powerups drift toward you once you are close, so they never feel missable
-    const d = dist(player.x, player.y, pk.x, pk.y);
-    if (d < player.magnetRadius*1.4 && d > 1){
-      pk.x += ((player.x-pk.x)/d) * 190 * dt;
-      pk.y += ((player.y-pk.y)/d) * 190 * dt;
+    const ddx = player.x - pk.x, ddy = player.y - pk.y;
+    const d2 = ddx*ddx + ddy*ddy;
+    const reach = player.magnetRadius*1.4;
+    if (d2 < reach*reach && d2 > 1){
+      const d = Math.sqrt(d2);
+      pk.x += (ddx/d) * 190 * dt;
+      pk.y += (ddy/d) * 190 * dt;
     }
-    if (d < player.radius + pk.radius + 6){
+    const pr = player.radius + pk.radius + 6;
+    if (d2 < pr*pr){
       pk.dead = true;
       collectPickup(pk);
     }
@@ -3247,6 +3619,10 @@ function updateFX(dt){
     r.r = r.max * (r.life/r.maxLife);
     if (r.life >= r.maxLife) novaRings.splice(i,1);
   }
+  for (let i=dmgDirs.length-1;i>=0;i--){
+    dmgDirs[i].life += dt;
+    if (dmgDirs[i].life >= dmgDirs[i].maxLife) dmgDirs.splice(i,1);
+  }
 }
 
 /* ============================= MAIN LOOP =============================
@@ -3257,7 +3633,7 @@ function updateFX(dt){
    and both climb back once there is headroom. Wide deadband + cooldown so it
    settles instead of oscillating.                                            */
 let lastT = performance.now();
-let frameSum = 0, frameN = 0, qualityCooldown = 0;
+let frameSum = 0, frameN = 0, qualityCooldown = 0, lowHpT = 0;
 
 function tuneQuality(dt){
   if (qualityCooldown > 0){ qualityCooldown -= dt; return; }
@@ -3280,7 +3656,7 @@ function loop(now){
   // Self-correcting viewport. A `resize` listener alone is not enough: mobile
   // browsers collapse the URL bar without always firing one, and the canvas is
   // then left letterboxed against a stale height. One comparison a frame.
-  if (window.innerWidth !== W || window.innerHeight !== H) resize();
+  if (window.innerWidth !== viewW || window.innerHeight !== viewH) resize();
 
   let dt = (now - lastT) / 1000;
   lastT = now;
@@ -3313,6 +3689,14 @@ function loop(now){
     updatePickups(gdt);
     updateCamera(gdt);
 
+    // the danger vignette is easy to tune out mid-fight; a pulse in your ears is
+    // not, and "I never noticed I was about to die" was the worst way to lose
+    const hpRatio = player.health / player.maxHealth;
+    if (hpRatio < 0.3){
+      lowHpT -= dt;
+      if (lowHpT <= 0){ lowHpT = 0.42 + hpRatio*1.4; Audio_.heartbeat(); }
+    } else lowHpT = 0;
+
     if (comboTimer > 0){ comboTimer -= gdt; if (comboTimer <= 0) comboCount = 0; }
     // guard on state: dying inside this frame must not raise a card over the death screen
     if (pendingLevelUps > 0 && state === 'playing') showLevelUpCard();
@@ -3324,9 +3708,13 @@ function loop(now){
   updateFX(gdt);
   if (shakeMag > 0){ shakeT += dt; shakeMag = Math.max(0, shakeMag - dt*26); }
 
-  render();
-
+  // Tune BEFORE drawing. tuneQuality can call resize(), and assigning
+  // canvas.width wipes the backing store — running it after render() meant every
+  // single quality step flashed one fully black frame, which lands precisely when
+  // the device is already struggling and you are most likely to notice.
   if (state === 'playing') tuneQuality(dt);
+
+  render();
 }
 
 /* ============================= RENDER ============================= */
@@ -3350,11 +3738,16 @@ function drawBackground(){
   const s = Math.max(W,H) * 1.5;
   ctx.drawImage(ambientSprite, player.x - s/2, player.y - s/2, s, s);
 
-  // arena boundary (no shadowBlur — two strokes fake the bloom for a fraction of the cost)
-  ctx.strokeStyle = 'rgba(255,46,166,0.18)'; ctx.lineWidth = 20;
-  ctx.strokeRect(4, 4, WORLD_W-8, WORLD_H-8);
-  ctx.strokeStyle = 'rgba(255,46,166,0.75)'; ctx.lineWidth = 5;
-  ctx.strokeRect(4, 4, WORLD_W-8, WORLD_H-8);
+  // Arena boundary (no shadowBlur — two strokes fake the bloom far cheaper).
+  // Skipped entirely unless the camera is actually near an edge: the world is
+  // 4000px across, so for most of a run this was two 4000px-perimeter strokes a
+  // frame that landed nowhere near the viewport.
+  if (camera.x < 60 || camera.y < 60 || camera.x + W > WORLD_W - 60 || camera.y + H > WORLD_H - 60){
+    ctx.strokeStyle = 'rgba(255,46,166,0.18)'; ctx.lineWidth = 20;
+    ctx.strokeRect(4, 4, WORLD_W-8, WORLD_H-8);
+    ctx.strokeStyle = 'rgba(255,46,166,0.75)'; ctx.lineWidth = 5;
+    ctx.strokeRect(4, 4, WORLD_W-8, WORLD_H-8);
+  }
 }
 
 function drawPylons(){
@@ -3619,7 +4012,9 @@ function render(){
   for (let i=0;i<bItems.length;i++){
     const b = bItems[i];
     if (!b.active || !inView(b.x, b.y)) continue;
-    if (player.railgun){
+    if (b.drone){
+      drawGlow(b.x, b.y, b.radius, SHOT_COLOR, 1, 'tri');
+    } else if (player.railgun){
       ctx.save();
       ctx.globalAlpha = 0.7;
       ctx.strokeStyle = '#f9e838';
@@ -3665,6 +4060,20 @@ function render(){
       ctx.restore();
     }
 
+    // barrel flare: grows over the last 0.45s before a ranged mob shoots
+    if (e.windup > 0.05){
+      const reach = e.radius + 14 + 26*e.windup;
+      ctx.save();
+      ctx.globalAlpha = 0.2 + 0.6*e.windup;
+      ctx.strokeStyle = FOE_SHOT;
+      ctx.lineWidth = 1.5 + 2.5*e.windup;
+      ctx.beginPath();
+      ctx.moveTo(e.x + Math.cos(e.aimAng)*e.radius, e.y + Math.sin(e.aimAng)*e.radius);
+      ctx.lineTo(e.x + Math.cos(e.aimAng)*reach, e.y + Math.sin(e.aimAng)*reach);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     drawGlow(e.x, e.y, e.radius, e.hitFlash > 0 ? '#ffffff' : e.color, 1, e.shape);
 
     if (freezeT > 0 && !e.boss){
@@ -3672,6 +4081,12 @@ function render(){
       ctx.globalAlpha = 0.5;
       ctx.strokeStyle = '#7fd3ff'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(e.x, e.y, e.radius+4, 0, TAU); ctx.stroke();
+      ctx.restore();
+    } else if (e.slowT > 0){
+      ctx.save();
+      ctx.globalAlpha = 0.28 + 0.3*Math.min(1, e.slowAmt*1.4);
+      ctx.strokeStyle = '#7fd3ff'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.radius+3, 0, TAU); ctx.stroke();
       ctx.restore();
     }
 
@@ -3744,6 +4159,22 @@ function render(){
     ctx.beginPath(); ctx.arc(player.x, player.y, player.radius + 8, 0, TAU); ctx.stroke();
     ctx.restore();
   }
+  // an ability you have to look away from the fight to check is an ability you
+  // forget you own — "ready" is announced on the character itself
+  if (player.ult.charge >= player.ult.max){
+    ctx.save();
+    ctx.globalAlpha = 0.35 + 0.35*Math.sin(elapsed*5);
+    ctx.strokeStyle = '#f9e838'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(player.x, player.y, player.radius + 17, 0, TAU); ctx.stroke();
+    ctx.restore();
+  }
+  if (player.overloadT > 0){
+    ctx.save();
+    ctx.globalAlpha = clamp(player.overloadT/5, 0, 1) * 0.55;
+    ctx.strokeStyle = '#ff8a2e'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(player.x, player.y, player.radius + 24 + Math.sin(elapsed*9)*3, 0, TAU); ctx.stroke();
+    ctx.restore();
+  }
 
   if (player.dash.t > 0){
     // shrinking afterimages read as speed; a solid capsule just read as a blob
@@ -3765,6 +4196,19 @@ function render(){
     for (let i=0;i<o.count;i++){
       const a = o.ang + (TAU/o.count)*i;
       drawGlow(player.x + Math.cos(a)*o.radius, player.y + Math.sin(a)*o.radius, o.evo ? 11 : 9, '#ff2ea6', 1);
+    }
+  }
+
+  /* ---- combat drones ----
+     Drawn in SHOT_COLOR, not the drone card's green: green belongs to the weaver,
+     which is also a triangle, and a friendly unit that reads as an enemy at a
+     glance is worse than one that reads as a bit of your own gun. */
+  if (player.drones){
+    const dr = player.drones;
+    for (let i=0;i<dr.count;i++){
+      const a = dr.ang + (TAU/dr.count)*i;
+      drawGlow(player.x + Math.cos(a)*dr.radius, player.y + Math.sin(a)*dr.radius,
+               dr.evo ? 8 : 6.5, SHOT_COLOR, 1, 'tri');
     }
   }
 
@@ -3818,6 +4262,27 @@ function render(){
       if (e.boss) drawEdgeIndicator(e.x, e.y, e.glow, 'BOSS');
     }
     if (node) drawEdgeIndicator(node.x, node.y, '#f9e838', 'NODE');
+
+    // where the damage came from — the red flash says "you got hit", this says
+    // "from behind you", which is the half you can actually do something about
+    if (dmgDirs.length){
+      const px = player.x - camera.x, py = player.y - camera.y;
+      ctx.save();
+      ctx.strokeStyle = '#ff2ea6';
+      ctx.lineCap = 'round';
+      for (let i=0;i<dmgDirs.length;i++){
+        const dd = dmgDirs[i];
+        const k = 1 - dd.life/dd.maxLife;
+        ctx.globalAlpha = clamp(k,0,1) * 0.8;
+        ctx.lineWidth = 3 + 4*k;
+        ctx.beginPath();
+        ctx.arc(px, py, 66 + (1-k)*26, dd.ang - 0.4, dd.ang + 0.4);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.lineCap = 'butt';
+    }
+
     drawMinimap();
   }
 }
@@ -3842,12 +4307,16 @@ const hudEls = {
   bossEnrage: document.getElementById('bossEnrage'),
   buffRow: document.getElementById('buffRow'),
   dashPips: document.getElementById('dashPips'),
+  ultBarBg: document.getElementById('ultBarBg'),
+  ultFill: document.getElementById('ultFill'),
+  ultLabel: document.getElementById('ultLabel'),
   toast: document.getElementById('toast'),
 };
 
 // every one of these used to be written to the DOM on every single frame
 const hudPrev = { hp:-1, hpTxt:'', xp:-1, lvl:-1, time:'', score:'', kills:-1, wave:-1,
-                  shield:-1, combo:'', boss:'', bossHp:-1, buffs:'', dash:-1, dashMax:-1, vig:'' };
+                  shield:-1, combo:'', boss:'', bossHp:-1, buffs:'', dash:-1, dashMax:-1, vig:'',
+                  ult:-1, ultReady:-1 };
 
 let toastTimer = null;
 function showToast(msg){
@@ -3904,6 +4373,18 @@ function updateHUD(){
     if (usingTouch) dashBtn.classList.toggle('cool', d.charges === 0);
   }
 
+  /* overload meter — quantised so a smoothly filling bar is not a DOM write a frame */
+  const ultPct = clamp(player.ult.charge/player.ult.max*100, 0, 100);
+  const ultQ = Math.round(ultPct);
+  if (ultQ !== hudPrev.ult){ hudEls.ultFill.style.width = ultQ + '%'; hudPrev.ult = ultQ; }
+  const ultReady = ultQ >= 100 ? 1 : 0;
+  if (ultReady !== hudPrev.ultReady){
+    hudEls.ultBarBg.classList.toggle('ready', !!ultReady);
+    hudEls.ultLabel.classList.toggle('ready', !!ultReady);
+    if (usingTouch) ultBtn.classList.toggle('ready', !!ultReady);
+    hudPrev.ultReady = ultReady;
+  }
+
   /* danger vignette */
   const hpRatio = player.health/player.maxHealth;
   const vigOn = hpRatio < 0.32 ? 'on' : 'off';
@@ -3951,18 +4432,26 @@ function updateHUD(){
   }
 
   /* buff chips — rebuilt only when the set actually changes */
+  // Berserk was completely invisible: the card promises up to +220% weapon damage
+  // scaling with missing HP, and nothing anywhere told you what you currently had.
+  // A build whose central trade-off you cannot read is a build you cannot play.
+  const bsk = player.berserk ? Math.round((berserkMult()-1)*100) : 0;
   let sig = '';
   if (player.frenzyT > 0) sig += 'f' + Math.ceil(player.frenzyT);
   if (player.surgeT > 0) sig += 's' + Math.ceil(player.surgeT);
+  if (player.overloadT > 0) sig += 'o' + Math.ceil(player.overloadT);
   if (freezeT > 0) sig += 'z' + Math.ceil(freezeT);
+  if (bsk >= 5) sig += 'k' + (Math.round(bsk/5)*5);
   if (node && node.held) sig += 'n' + Math.round(node.prog*20);
   if (bossAlive) sig += 'b';
   const bossIn = Math.max(0, nextBossTime - elapsed);
   if (!bossAlive) sig += 't' + Math.ceil(bossIn/5);
   if (sig !== hudPrev.buffs){
     let html = '';
+    if (player.overloadT > 0) html += '<div class="buffChip" style="color:#ff8a2e">◉ OVERLOADED ' + Math.ceil(player.overloadT) + 's</div>';
     if (player.frenzyT > 0) html += '<div class="buffChip" style="color:#f9e838">⚡ FRENZY ' + Math.ceil(player.frenzyT) + 's</div>';
     if (player.surgeT > 0) html += '<div class="buffChip" style="color:#f9e838">✦ SURGE +35% ' + Math.ceil(player.surgeT) + 's</div>';
+    if (bsk >= 5) html += '<div class="buffChip" style="color:#ff2ea6">💢 BERSERK +' + bsk + '%</div>';
     if (freezeT > 0) html += '<div class="buffChip" style="color:#7fd3ff">❄ FROZEN ' + Math.ceil(freezeT) + 's</div>';
     if (node && node.held) html += '<div class="buffChip" style="color:#39ff88">◎ SIPHONING ' + Math.round(node.prog*100) + '%</div>';
     if (!bossAlive && bossIn < 900) html += '<div class="buffChip" style="color:' + (bossIn < 10 ? '#ff2ea6' : '#8fb6d6') + '">☠ BOSS IN ' + Math.ceil(bossIn) + 's</div>';
@@ -3998,7 +4487,8 @@ function resetGame(){
   const cls = classById(selectedClass);
   player = newPlayer(cls);
   enemies.length = 0; crates.length = 0; pickups.length = 0;
-  novaRings.length = 0;
+  novaRings.length = 0; dmgDirs.length = 0;
+  stickyTarget = null; retargetT = 0; lowHpT = 0;
   for (const pool of [PARTS, BULLETS, EBULLETS, GEMS, TEXTS, ARCS]){
     for (let i=0;i<pool.items.length;i++){ pool.items[i].active = false; pool.items[i].magnetized = false; }
     pool.ptr = 0;
@@ -4009,6 +4499,7 @@ function resetGame(){
   dodgeCount = 0;
   bossSpawnedCount = 0; bossKills = 0; nextBossTime = 55; bossAlive = false; bossRef = null;
   nodesHeld = 0; node = null; nodeTimer = 26;
+  overloadCount = 0; damageDealt = 0;
   spawnTimer = 0.8; pendingLevelUps = 0; crateSpawnTimer = 14;
   newUnlocks = [];
   for (const k in hudPrev) hudPrev[k] = (typeof hudPrev[k] === 'number') ? -1 : '';
@@ -4031,6 +4522,7 @@ function startGame(){
   levelupScreen.classList.add('hidden');
   hud.classList.remove('hidden');
   dashQueued = false;
+  ultQueued = false;
   Audio_.click();
   Audio_.startMusic();
   showToast('Move with WASD · SPACE to dash · your cannon fires itself');
@@ -4049,11 +4541,11 @@ function toMenu(){
 function togglePause(){
   if (state === 'playing'){
     state = 'paused';
-    dashQueued = false;
+    dashQueued = false; ultQueued = false;
     pauseScreen.classList.remove('hidden');
   } else if (state === 'paused'){
     state = 'playing';
-    dashQueued = false;
+    dashQueued = false; ultQueued = false;
     lastT = performance.now();
     pauseScreen.classList.add('hidden');
   }
@@ -4216,10 +4708,10 @@ function statRow(k,v){ return '<div class="statRow"><span>' + k + '</span><b>' +
 function buildStatsHTML(){
   const p = player;
   const cls = classById(p.classId);
-  const dps = p.damage * p.fireRate * p.projectileCount * (1 + p.critChance*(p.critMult-1));
+  const dps = estimatedDPS();
   const core = [
     ['Pilot', cls.name],
-    ['Estimated DPS', Math.round(dps)],
+    ['Estimated DPS', Math.round(dps) + (playerDmgMult() > 1.01 ? '  (' + Math.round(dps*playerDmgMult()) + ' now)' : '')],
     ['Damage', p.damage.toFixed(1)],
     ['Fire Rate', p.fireRate.toFixed(2) + '/s'],
     ['Projectiles', p.projectileCount],
@@ -4232,8 +4724,11 @@ function buildStatsHTML(){
     ['HP Regen', (p.regen*100).toFixed(2) + '% max HP/s'],
     ['Lifesteal', (p.lifesteal*100).toFixed(2) + '% max HP/kill'],
     ['Magnet Range', Math.round(p.magnetRadius)],
+    ['XP Gain', Math.round(p.xpMult*100) + '%'],
     ['Dash', p.dash.maxCharges + ' charge(s), ' + p.dash.cd.toFixed(2) + 's cooldown' + (p.dash.dmg ? ', ' + Math.round(p.dash.dmg) + ' contact dmg' : '')],
     ['Surge', p.surgeT > 0 ? 'ACTIVE +35% (' + p.surgeT.toFixed(1) + 's)' : 'dash through fire to trigger'],
+    ['Overload', Math.round(p.ult.charge) + '% charged, ' + Math.round(p.ult.rate*100) + '% rate'
+                 + (p.overloadT > 0 ? '  · ACTIVE' : (p.ult.charge >= p.ult.max ? '  · READY [E]' : ''))],
   ];
   let html = '<div class="statSection">CORE SYSTEMS</div><div class="statGrid">'
     + core.map(r => statRow(r[0], r[1])).join('') + '</div>';
@@ -4243,8 +4738,11 @@ function buildStatsHTML(){
   if (p.nova)      specials.push(['☢️ Nova Pulse', p.nova.dmg.toFixed(1) + ' dmg / ' + p.nova.interval.toFixed(1) + 's, r' + Math.round(p.nova.radius)]);
   if (p.chain)     specials.push(['🔗 Arc Rounds', Math.round(p.chain.chance*100) + '% chance, ' + p.chain.jumps + ' jump(s), ' + Math.round(p.chain.falloff*100) + '% carry']);
   if (p.explosive) specials.push(['🧨 Detonator Rounds', Math.round(p.explosive.radius) + 'px, ' + Math.round(p.explosive.dmgPct*100) + '% splash' + (p.explosive.burn ? ' + burn' : '')]);
-  if (p.ricochet)  specials.push(['📐 Bank Shot', p.ricochet + ' wall bounce(s)']);
-  if (p.berserk)   specials.push(['💢 Berserk Protocol', 'up to +' + Math.round(p.berserk.maxBonus*100) + '% dmg at low HP']);
+  if (p.ricochet)  specials.push(['📐 Carom Shot', p.ricochet + ' ricochet(s) into fresh targets']);
+  if (p.cryo)      specials.push(['❄️ Cryo Rounds', Math.round(p.cryo.slow*100) + '% slow for ' + p.cryo.dur.toFixed(1) + 's' + (p.cryo.shatter ? ' + 35% damage taken' : '')]);
+  if (p.drones)    specials.push(['🛸 Combat Drones', p.drones.count + ' drone(s), ' + p.drones.dmg.toFixed(1) + ' dmg @ ' + p.drones.rate.toFixed(2) + '/s' + (p.drones.pierce ? ', piercing' : '')]);
+  if (p.execute)   specials.push(['☠️ Culling Field', 'executes below ' + Math.round(p.execute*100) + '% HP' + (p.executeBoom ? ' + detonation' : '')]);
+  if (p.berserk)   specials.push(['💢 Berserk Protocol', 'up to +' + Math.round(p.berserk.maxBonus*100) + '% dmg · currently +' + Math.round((berserkMult()-1)*100) + '%']);
   if (p.overdrive) specials.push(['📈 Combo Matrix', p.overdrive.threshold + '-kill streak: +' + Math.round(p.overdrive.fireRateBonus*100) + '% fire, +' + Math.round(p.overdrive.speedBonus*100) + '% speed']);
   if (p.gravity)   specials.push(['🌌 Singularity Pulse', Math.round(p.gravity.radius) + 'px / ' + p.gravity.interval.toFixed(1) + 's' + (p.gravity.nova ? ' + nova detonation' : '')]);
   if (p.shield)    specials.push(['🛡️ Deflector Shield', p.shield.charges + '/' + p.shield.maxCharges + ' charges, ' + p.shield.regenTime.toFixed(1) + 's recharge']);
@@ -4263,6 +4761,8 @@ function buildStatsHTML(){
     + statRow('Bosses Down', bossKills)
     + statRow('Nodes Secured', nodesHeld)
     + statRow('Perfect Dodges', dodgeCount)
+    + statRow('Overloads Fired', overloadCount)
+    + statRow('Damage Dealt', fmtNum(damageDealt))
     + statRow('Rerolls / Banishes', player.rerolls + ' / ' + player.banishes)
     + '</div>';
   return html;
@@ -4310,6 +4810,8 @@ function gameOver(){
   document.getElementById('finalCombo').textContent  = bestCombo;
   document.getElementById('finalNodes').textContent  = nodesHeld;
   document.getElementById('finalDodges').textContent = dodgeCount;
+  document.getElementById('finalOverloads').textContent = overloadCount;
+  document.getElementById('finalDamage').textContent = fmtNum(damageDealt);
   document.getElementById('finalThreat').textContent = threatLevel;
   document.getElementById('newRecord').classList.toggle('hidden', !(newT || newS));
   document.getElementById('newRecord').textContent =
