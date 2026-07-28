@@ -749,6 +749,8 @@ const SHAPES = {
   pent:   [5, -Math.PI/2],
   hex:    [6, 0],
   star:   [-5, -Math.PI/2],
+  spike:  [-3, -Math.PI/2],   // three long barbs — reads as "this thing lunges"
+  oct:    [8, Math.PI/8],
 };
 
 /* Three-level lookup (colour → shape → radius) rather than a composite string
@@ -1005,6 +1007,13 @@ const Audio_ = (() => {
     // low-HP heartbeat: the vignette is easy to tune out, a pulse in your ears is not
     heartbeat(){ tone(58, 0.16, 'sine', 0.075, {sweepTo:40}); },
     startMusic, stopMusic,
+    // the bed used to keep hammering away at full volume behind the pause screen
+    // and every level-up — a menu that sounds exactly like combat reads as the
+    // game still running, which is the last thing a choice screen should say
+    duck(on){
+      if (!ctxA || !musicGain) return;
+      musicGain.gain.setTargetAtTime(muted ? 0 : (wantMusic ? (on ? 0.13 : 0.5) : 0), ctxA.currentTime, 0.12);
+    },
     setIntensity(v){ intensity = clamp(v,0,1); },
     toggleMute(){
       muted = !muted;
@@ -1239,9 +1248,13 @@ function gridInsert(e){
   const cy = clamp((e.y / GCELL)|0, 0, GH-1);
   cells[cy*GW + cx].push(e);
 }
-// independent scratch buffers so a query inside a query never clobbers the outer
-// one: qA = outer iteration, qB = reactions (retaliate/siphon), qC = nearestEnemy
-const qA = [], qB = [], qC = [];
+/* Independent scratch buffers so a query inside a query never clobbers the outer
+   one: qA = outer iteration, qB = reactions (retaliate/siphon), qC = nearestEnemy,
+   qD = one-shot player AoEs (the revive blast).
+   qD is not redundant: resolveDeath used to iterate qB, and killing a bomber with
+   that blast damages the player, which fires Static Discharge, which re-queries
+   qB — rewriting the array the outer loop was still walking. */
+const qA = [], qB = [], qC = [], qD = [];
 function gridQuery(x, y, r, out){
   out.length = 0;
   const x0 = clamp(((x-r)/GCELL)|0, 0, GW-1), x1 = clamp(((x+r)/GCELL)|0, 0, GW-1);
@@ -1426,9 +1439,10 @@ const CLASSES = [
   {
     id:'tempest', name:'TEMPEST', role:'SHOTGUN / GLASS', icon:'✺', color:'#ff2ea6',
     perk:'Three-round scatter and a third dash charge. Very fragile.',
-    // per-shot damage trimmed: its three rounds used to spray past a single
-    // target, and now that the volley converges all three reliably land
-    stats:{ maxHealth:84, speed:254, damage:5.4, fireRate:2.8, projectileCount:3, projectileSpeed:520,
+    // 6.4 x volleyMult(3) lands back on the 5.4 this was tuned to: the wide-volley
+    // falloff is meant to tax Split Shot STACKING, not to quietly nerf the pilot
+    // whose whole identity is starting with three rounds
+    stats:{ maxHealth:84, speed:254, damage:6.4, fireRate:2.8, projectileCount:3, projectileSpeed:520,
             critChance:0.05, critMult:2, pierce:0, dashCharges:3 },
     init(p){ p.dash.cd = 1.7; p.spreadBase = 0.17; },
   },
@@ -1481,7 +1495,8 @@ function newPlayer(cls){
     cryo:null, drones:null, execute:0, executeBoom:false,
     // OVERLOAD: a second active verb. It fills from damage you actually deal, so
     // playing forward is what buys the panic button rather than turtling for it.
-    ult: { charge:0, max:100, rate:1, wasReady:false },
+    ult: { charge:0, max:100, rate:1, wasReady:false, budget:ULT_DMG_CAP },
+    lsBudget: LIFESTEAL_CAP,
     overloadT: 0,
     secondWind:false, secondWindOwned:false,
     frenzyT: 0, overchargeT: 0, surgeT: 0, muzzleT: 0,
@@ -1505,6 +1520,27 @@ function newPlayer(cls){
 const pct = v => Math.round(v*100) + '%';
 const compound = (mult, s) => pct(Math.pow(mult, s) - 1);
 
+/* Per-round damage falloff for wide volleys. Net multiplier n*volleyMult(n):
+   1 round 1.00x · 2 1.83x · 3 2.54x · 4 3.15x · 5 3.68x · 6 4.14x — still the
+   biggest swing available for five picks, no longer a strictly-dominant one. */
+function volleyMult(n){ return n <= 1 ? 1 : 1 / (1 + 0.09*(n-1)); }
+
+// sustain and Overload both used to scale with KILL RATE, which is the one number
+// in this game that runs away without limit. Both now draw from a refilling
+// budget: burst behaviour is untouched, the sustained ceiling is real.
+const LIFESTEAL_CAP = 0.035;   // fraction of max HP per second
+const ULT_DMG_CAP   = 4.5;     // Overload charge per second obtainable from damage
+
+/* Total bonus from `s` more stacks of an uncapped line you already own `owned` of,
+   where each successive stack is worth `decay` of the last. The sum converges —
+   an infinite line whose total is finite (0.07 @ 0.96 tops out around +575%) —
+   which is the only way a card you can take forever stays sane. */
+function converge(owned, s, per, decay){
+  let sum = 0;
+  for (let i=0;i<s;i++) sum += per * Math.pow(decay, owned + i);
+  return sum;
+}
+
 const upgradePool = [
   /* ---------- core stats ---------- */
   { id:'damage', icon:'⚡', color:'#f9e838', max:10, weight:10,
@@ -1515,10 +1551,20 @@ const upgradePool = [
     name:()=>'Rapid Fire', desc:(p,s)=>'+'+compound(1.13,s)+' fire rate',
     apply:(p,s)=>{ p.fireRate *= Math.pow(1.13,s); } },
 
-  // capped at 5 (was 6): each stack is worth far more now that the volley
-  // converges on its target instead of spraying past it
+  /* Once the volley started CONVERGING, every round landed on the same target and
+     Split Shot became a flat 6x single-target multiplier for five picks — nothing
+     else in the pool is within a factor of two of that, so the "choice" at every
+     level-up was just whether Split Shot happened to be on the board. Each extra
+     round now carries a little less damage (see volleyMult): the line stays the
+     strongest front-loaded pick in the game and by far the best against crowds,
+     it just stops being the only correct answer. */
   { id:'multishot', icon:'➕', color:'#05f2f2', max:5, weight:8,
-    name:()=>'Split Shot', desc:(p,s)=>'+'+s+' converging projectile'+(s>1?'s':''),
+    name:()=>'Split Shot',
+    desc:(p,s)=>{
+      const now = p.projectileCount, next = now + s;
+      return '+'+s+' converging projectile'+(s>1?'s':'')
+           + ' — +' + Math.round(((next*volleyMult(next))/(now*volleyMult(now)) - 1)*100) + '% volley damage';
+    },
     apply:(p,s)=>{ p.projectileCount += s; } },
 
   { id:'speed', icon:'👟', color:'#39ff88', max:6, weight:8,
@@ -1533,13 +1579,22 @@ const upgradePool = [
     name:()=>'Ablative Plating', desc:(p,s)=>'-'+pct(1-Math.pow(0.93,s))+' damage taken',
     apply:(p,s)=>{ p.armor = 1 - (1-p.armor)*Math.pow(0.93,s); } },
 
-  { id:'regen', icon:'♻️', color:'#39ff88', max:6, weight:7,
-    // scales with max HP so it does not fall off a cliff the way a flat +1/s did
-    name:()=>'Nanite Regen', desc:(p,s)=>'Regenerate '+(0.9*s).toFixed(1)+'% max HP per second',
-    apply:(p,s)=>{ p.regen += 0.009*s; } },
+  // scales with max HP so it does not fall off a cliff the way a flat +1/s did.
+  // 0.7%/s per stack, capped at 5: at the old 0.9 x 6 this was 5.4% max HP per
+  // second, which two EPIC rolls could hand you before the four-minute mark and
+  // which simply outhealed the entire mid game.
+  { id:'regen', icon:'♻️', color:'#39ff88', max:5, weight:7,
+    name:()=>'Nanite Regen', desc:(p,s)=>'Regenerate '+(0.7*s).toFixed(1)+'% max HP per second',
+    apply:(p,s)=>{ p.regen += 0.007*s; } },
 
+  /* Per-KILL healing has no ceiling in a game whose kill rate ends up above ten
+     a second — maxed, this was healing ~17% of your max HP every second late on,
+     which is more sustain than any amount of incoming damage could answer. The
+     per-kill number stays big (it should feel great to wade into a pack); a
+     per-second budget is what stops it becoming immortality. */
   { id:'lifesteal', icon:'🩸', color:'#ff2ea6', max:5, weight:7,
-    name:()=>'Vampiric Rounds', desc:(p,s)=>'Heal '+(0.35*s).toFixed(2)+'% max HP per kill',
+    name:()=>'Vampiric Rounds',
+    desc:(p,s)=>'Heal '+(0.35*s).toFixed(2)+'% max HP per kill (up to '+Math.round(LIFESTEAL_CAP*100)+'%/s)',
     apply:(p,s)=>{ p.lifesteal += 0.0035*s; } },
 
   // Pickup range alone was a non-choice: gems already fly at you and the card
@@ -1722,10 +1777,45 @@ const upgradePool = [
     available:p=> !p.secondWind,
     apply:p=>{ p.secondWind = true; p.secondWindOwned = true; } },
 
-  /* infinite filler so the pool can never run dry late in a long run */
-  { id:'overclock', icon:'⚙️', color:'#8fb6d6', max:999, weight:3,
-    name:()=>'Overclock', desc:(p,s)=>'+'+(7*s)+'% damage and +'+(4*s)+'% fire rate',
-    apply:(p,s)=>{ p.damage *= (1 + 0.07*s); p.fireRate *= (1 + 0.04*s); } },
+  /* ---------- MASTERIES: the uncapped endgame pool ----------
+     Every capped line is maxed out by roughly level sixty, after which the old
+     single filler card was the ONLY thing left in the pool — sixty consecutive
+     level-ups showing three identical Overclocks, which is not a choice, and
+     +7% damage compounding sixty times, which is a 51x multiplier bolted onto an
+     already-finished build. A twelve-minute run ended north of a million DPS
+     with nothing alive left to point it at.
+     Three lines instead of one keeps the late board an actual decision
+     (offence / survivability / precision), and every stack decays, so each line
+     is infinite, always worth taking, and converges on a finite total. */
+  { id:'overclock', icon:'⚙️', color:'#8fb6d6', max:999, weight:2,
+    name:()=>'Overclock',
+    desc:(p,s)=>{ const o = upgradeLevel('overclock');
+      return '+'+pct(converge(o,s,0.07,0.96))+' damage and +'+pct(converge(o,s,0.045,0.96))+' fire rate'; },
+    apply:(p,s)=>{ const o = upgradeLevel('overclock');
+      p.damage   *= 1 + converge(o,s,0.07,0.96);
+      p.fireRate *= 1 + converge(o,s,0.045,0.96); } },
+
+  { id:'bulwark', icon:'🧱', color:'#39ff88', max:999, weight:2,
+    name:()=>'Reinforced Chassis',
+    // states the damage resist it will ACTUALLY grant: armour is capped at 65%,
+    // and a card that keeps promising a reduction it cannot deliver is a lie
+    desc:(p,s)=>{ const o = upgradeLevel('bulwark');
+      const gain = Math.min(0.65, 1 - (1-p.armor)*Math.pow(0.97,s)) - p.armor;
+      return '+'+pct(converge(o,s,0.09,0.96))+' max hull (healed)'
+           + (gain > 0.001 ? ' and -'+pct(gain)+' damage taken' : ' · armour already at maximum'); },
+    apply:(p,s)=>{ const o = upgradeLevel('bulwark');
+      const add = p.maxHealth * converge(o,s,0.09,0.96);
+      p.maxHealth += add;
+      p.health = Math.min(p.maxHealth, p.health + add);
+      p.armor = Math.min(0.65, 1 - (1-p.armor)*Math.pow(0.97,s)); } },
+
+  { id:'resonance', icon:'🔬', color:'#f9e838', max:999, weight:2,
+    name:()=>'Resonance Tuning',
+    desc:(p,s)=>{ const o = upgradeLevel('resonance');
+      return '+'+converge(o,s,0.18,0.96).toFixed(2)+'x crit damage and +'+pct(converge(o,s,0.05,0.96))+' projectile speed'; },
+    apply:(p,s)=>{ const o = upgradeLevel('resonance');
+      p.critMult += converge(o,s,0.18,0.96);
+      p.projectileSpeed *= 1 + converge(o,s,0.05,0.96); } },
 
   /* ---------- EVOLUTIONS: build payoffs, offered once each ---------- */
   { id:'evo_railgun', icon:'🌠', color:'#f9e838', evo:true, max:1,
@@ -1873,14 +1963,28 @@ function applyOffer(o){
 const ENEMY_TYPES = {
   grunt:    { radius:16, speed:98,  hp:22, dmg:8,  xp:3, color:'#ff2ea6', shape:'circle' },
   runner:   { radius:10, speed:192, hp:12, dmg:6,  xp:2, color:'#f9e838', shape:'diamond' },
-  brute:    { radius:28, speed:60,  hp:98, dmg:22, xp:9, color:'#ff8a2e', shape:'hex' },
-  shooter:  { radius:14, speed:80,  hp:30, dmg:10, xp:5, color:'#05f2f2', shape:'square', ranged:true },
-  splitter: { radius:19, speed:86,  hp:36, dmg:10, xp:4, color:'#c86bff', shape:'pent', splits:true },
+  brute:    { radius:28, speed:60,  hp:98, dmg:22, xp:9, color:'#ff8a2e', shape:'hex',
+              tip:'NEW THREAT — BRUTE: slow, heavy, hits like a truck' },
+  shooter:  { radius:14, speed:80,  hp:30, dmg:10, xp:5, color:'#05f2f2', shape:'square', ranged:true,
+              tip:'NEW THREAT — SHOOTER: keeps its distance and shoots. Break line of sight behind a pylon' },
+  splitter: { radius:19, speed:86,  hp:36, dmg:10, xp:4, color:'#c86bff', shape:'pent', splits:true,
+              tip:'NEW THREAT — SPLITTER: breaks into shards when it dies' },
   shard:    { radius:9,  speed:160, hp:9,  dmg:5,  xp:1, color:'#c86bff', shape:'tri' },
   // weaver orbits instead of charging — standing still lets it circle you forever
-  weaver:   { radius:13, speed:152, hp:26, dmg:9,  xp:5, color:'#39ff88', shape:'vee', weaves:true },
+  weaver:   { radius:13, speed:152, hp:26, dmg:9,  xp:5, color:'#39ff88', shape:'vee', weaves:true,
+              tip:'NEW THREAT — WEAVER: orbits you and fires. Chase it or it never stops' },
   // bomber punishes both letting it close AND killing it in your face
-  bomber:   { radius:18, speed:120, hp:34, dmg:15, xp:6, color:'#ff5f2e', shape:'star', bomber:true },
+  bomber:   { radius:18, speed:120, hp:34, dmg:15, xp:6, color:'#ff5f2e', shape:'star', bomber:true,
+              tip:'NEW THREAT — BOMBER: lights a fuse when it reaches you, and goes off even if you kill it' },
+  /* LANCER — the roster had no enemy you beat by MOVING. It winds up, paints a
+     lane and runs it: the counter is a sidestep or a dash, never more damage. */
+  lancer:   { radius:15, speed:106, hp:38, dmg:17, xp:7, color:'#ff2020', shape:'spike', lancer:true,
+              tip:'NEW THREAT — LANCER: paints a lane, then charges down it. Step out of the line' },
+  /* BLIGHT — the roster had no enemy that took SPACE away from you. It seeds
+     corrosive ground where you are about to be, which is what turns an open
+     field into terrain worth reading. */
+  blight:   { radius:20, speed:76,  hp:52, dmg:11, xp:8, color:'#5b8cff', shape:'oct', sower:true,
+              tip:'NEW THREAT — BLIGHT: seeds corrosive ground. Do not stand in the blue' },
 };
 
 // hard ceiling on live entities — past this the director escalates enemy QUALITY
@@ -1915,22 +2019,39 @@ const SHOT_COLOR  = '#7ffcff';
 const FOE_SHOT    = '#ff5f2e';
 const FOE_HOMING  = '#ff2020';
 
+/* The roster used to be fully unlocked 84 seconds in, so a ten-minute run spent
+   nine of those minutes seeing nothing it had not already seen — the difficulty
+   went up but the GAME stopped changing. Unlocks are now spread across the first
+   five minutes, and each new archetype announces itself once (see spawnEnemy) so
+   the first one you meet is a warning rather than an ambush.
+   Duplicated entries are the weighting: repeating 'grunt' early keeps the opening
+   readable, repeating the heavies late makes the endgame lean on them. */
+const TYPE_UNLOCKS = [
+  { t:0,   add:['grunt','grunt','grunt','runner'] },
+  { t:26,  add:['runner','brute'] },
+  { t:48,  add:['shooter','shooter'] },
+  { t:84,  add:['splitter','grunt'] },
+  { t:124, add:['weaver','weaver'] },
+  { t:168, add:['bomber','brute'] },
+  { t:212, add:['lancer','lancer'] },
+  { t:262, add:['blight','shooter'] },
+  { t:320, add:['bomber','weaver','lancer','brute'] },
+];
 // memoised: this was rebuilding a fresh array on every spawn tick and every node
 // pulse, purely to hand it to pick()
 const _typeTiers = [];
 function availableTypes(t){
-  const tier = (t > 84 ? 5 : t > 62 ? 4 : t > 50 ? 3 : t > 34 ? 2 : t > 22 ? 1 : 0);
+  let tier = 0;
+  for (let i=1;i<TYPE_UNLOCKS.length;i++){ if (t >= TYPE_UNLOCKS[i].t) tier = i; else break; }
   let types = _typeTiers[tier];
   if (types) return types;
-  types = ['grunt','grunt','runner'];
-  if (tier >= 1) types.push('brute');
-  if (tier >= 2) types.push('shooter');
-  if (tier >= 3) types.push('splitter');
-  if (tier >= 4) types.push('weaver','weaver');
-  if (tier >= 5) types.push('bomber');
+  types = [];
+  for (let i=0;i<=tier;i++) types = types.concat(TYPE_UNLOCKS[i].add);
   _typeTiers[tier] = types;
   return types;
 }
+// first sighting of an archetype in a run — used for the one-shot warning toast
+let seenTypes = {};
 
 function spawnEdgePos(){
   // try viewport sides in random order; when the camera is pinned to a world wall a
@@ -1996,21 +2117,66 @@ function spawnEnemy(typeKey, opts){
     shape: base.shape || 'circle',
     ranged: !!base.ranged, splits: !!base.splits,
     weaves: !!base.weaves, bomber: !!base.bomber,
+    lancer: !!base.lancer, sower: !!base.sower,
     fireTimer: rand(0.5,1.8),
     hitFlash: 0, touchCd: 0, orbitCd: 0,
     stun: 0, burn: 0, burnDps: 0,
-    slowT: 0, slowAmt: 0, _slow: 1,
+    slowT: 0, slowAmt: 0, _slow: 1, _vx: 0, _vy: 0,
     windup: 0, aimAng: 0,
+    chargeState:'idle', chargeTimer: rand(1.1,2.4), chargeDirX:0, chargeDirY:0, chargeHit:false, windupT:0,
     elite: !!eliteMod, eliteMod, dr: eliteMod && eliteMod.dr ? eliteMod.dr : 0,
     weaveDir: Math.random() < 0.5 ? 1 : -1, weaveT: rand(1.5,3.5),
     fuse: -1, ring: rand(0,TAU),
     boss: false, dead: false,
   };
   enemies.push(e);
+  // one-shot warning the first time an archetype shows up in a run: a new enemy
+  // you have to reverse-engineer mid-fight reads as an unfair death, not a lesson
+  if (!seenTypes[typeKey]){
+    seenTypes[typeKey] = 1;
+    if (base.tip){ showToast(base.tip); Audio_.warn(); }
+  }
   if (eliteMod){
     burst(e.x, e.y, eliteMod.color, 18, {minSpd:60,maxSpd:220,minLife:0.3,maxLife:0.6});
   }
   return e;
+}
+
+/* ============================= GROUND HAZARDS =============================
+   Every threat in the game used to be a body you could shoot or a bullet you
+   could dodge, which meant the only spatial question was "where are they".
+   Ground that hurts adds "where can I stand", and that is what makes 4000x4000
+   of open world worth having instead of an arena.                            */
+let hazards = [];
+const MAX_HAZARDS = 26;
+function spawnHazard(x, y, r, dps, life, color){
+  if (hazards.length >= MAX_HAZARDS) hazards.shift();
+  hazards.push({ x:clamp(x, r, WORLD_W-r), y:clamp(y, r, WORLD_H-r),
+                 r, dps, life:0, maxLife:life, color:color||'#5b8cff', tick:0, dead:false });
+}
+function updateHazards(dt){
+  if (!hazards.length) return;
+  for (let i=0;i<hazards.length;i++){
+    const h = hazards[i];
+    h.life += dt;
+    if (h.life >= h.maxLife){ h.dead = true; continue; }
+    // it blooms before it bites: you always get a beat to walk out of one that
+    // landed on top of you, so the damage is a decision rather than a tax
+    if (h.life >= 0.5){
+      const rr = h.r + player.radius*0.5;
+      h.tick -= dt;
+      if (h.tick <= 0 && dist2(player.x, player.y, h.x, h.y) < rr*rr){
+        h.tick = 0.5;
+        damagePlayer(h.dps, false, h.x, h.y);
+      }
+    }
+    if (!reducedMotion && fxScale > 0.5 && Math.random() < dt*7 && inView(h.x, h.y, h.r)){
+      const a = rand(0,TAU), d = Math.sqrt(Math.random())*h.r;
+      addParticle(h.x+Math.cos(a)*d, h.y+Math.sin(a)*d, rand(-10,10), rand(-34,-10),
+                  0.5, rand(1.4,2.8), h.color, 0, 0.94);
+    }
+  }
+  compact(hazards);
 }
 
 /* ============================= BOSSES ============================= */
@@ -2025,11 +2191,29 @@ const BOSS_TYPES = {
   voidreaper:  { name:'Void Reaper',  glow:'#39ff88', shape:'star',  radius:44, speedMult:0.8,  hpMult:1.3, dmgMult:1.1,  unlockAt:3 },
 };
 
+/* Four boss types are all a run ever saw, and all four were unlocked by the third
+   kill — every boss after that was a rerun. Affixes are the cheap combinatorial
+   answer: the same silhouette, a different problem, announced by name so you know
+   what you are walking into before it opens fire. */
+const BOSS_AFFIXES = [
+  { key:'warded',   name:'WARDED',   color:'#8fb6d6',
+    tip:'shrugs off damage — you will need your whole build for this one',
+    apply(b){ b.dr = 0.26; } },
+  { key:'legion',   name:'LEGION',   color:'#c86bff',
+    tip:'fights with an escort — the adds never stop coming',
+    apply(b){ b.legion = rand(4.6,6.2); b.legionT = 3; } },
+  { key:'unstable', name:'UNSTABLE', color:'#ff8a2e',
+    tip:'sheds burning ground every time it changes phase',
+    apply(b){ b.unstable = true; } },
+];
+
 function spawnBoss(){
   const idx = bossSpawnedCount;
   const eligible = Object.keys(BOSS_TYPES).filter(k => idx >= BOSS_TYPES[k].unlockAt);
   const typeKey = pick(eligible);
   const cfg = BOSS_TYPES[typeKey];
+  // affixes start once the roster has stopped being new, and get near-certain late
+  const affix = (idx >= 2 && Math.random() < clamp(0.3 + (idx-2)*0.16, 0, 0.85)) ? pick(BOSS_AFFIXES) : null;
   // Scale on TIME and boss index only — never on player level. Keying boss HP to
   // your own level means every upgrade you take silently buffs the boss, so the
   // fight never gets easier and the reward loop cancels itself out. Riding the
@@ -2054,17 +2238,19 @@ function spawnBoss(){
     spot = c;
   }
 
+  const hp = baseHp * cfg.hpMult * (affix ? 1.12 : 1);
   const b = {
-    type:'boss', bossType:typeKey, bossName:cfg.name,
+    type:'boss', bossType:typeKey, bossName: affix ? affix.name + ' ' + cfg.name : cfg.name,
+    affix,
     x: spot.x, y: spot.y,
     radius: cfg.radius,
     speed: 46*cfg.speedMult, baseSpeed: 46*cfg.speedMult,
-    hp: baseHp*cfg.hpMult, maxHp: baseHp*cfg.hpMult,
-    dmg: baseDmg*cfg.dmgMult, xp: Math.round(70 + idx*18 + elapsed*0.35),
+    hp, maxHp: hp,
+    dmg: baseDmg*cfg.dmgMult, xp: Math.round((70 + idx*18 + elapsed*0.35) * (affix ? 1.3 : 1)),
     color: cfg.glow, baseColor: cfg.glow, glow: cfg.glow,
     shape: cfg.shape, ranged: typeKey !== 'juggernaut', splits:false, weaves:false, bomber:false,
     fireTimer: 1.6, hitFlash:0, touchCd:0, orbitCd:0, stun:0, burn:0, burnDps:0,
-    slowT:0, slowAmt:0, _slow:1, windup:0, aimAng:0,
+    slowT:0, slowAmt:0, _slow:1, _vx:0, _vy:0, windup:0, aimAng:0,
     elite:false, eliteMod:null, dr:0, ring:0,
     boss:true, dead:false,
     enrage: 0, ageT: 0, phase: 0,
@@ -2072,6 +2258,7 @@ function spawnBoss(){
     summonTimer: rand(4,5.5),
     telegraphTimer: rand(3,4.5), telegraph:null,
   };
+  if (affix) affix.apply(b);
   enemies.push(b);
   bossSpawnedCount++;
   bossAlive = true;
@@ -2079,8 +2266,8 @@ function spawnBoss(){
   addShake(11);
   Audio_.boss();
   Audio_.setIntensity(1);
-  spawnText(player.x, player.y-70, cfg.name.toUpperCase()+' INCOMING', cfg.glow, 24, 2.4);
-  showToast(cfg.name.toUpperCase() + ' has entered the grid');
+  spawnText(player.x, player.y-70, b.bossName.toUpperCase()+' INCOMING', affix ? affix.color : cfg.glow, 24, 2.4);
+  showToast(b.bossName.toUpperCase() + (affix ? ' — ' + affix.tip : ' has entered the grid'));
   return b;
 }
 
@@ -2088,12 +2275,36 @@ function spawnBoss(){
    Spawn pressure reacts to how far ahead of the curve the player actually is,
    so a strong build gets a real fight instead of a victory lap.               */
 let spawnTimer = 0.8;
-const expectedLevel = t => 1 + t/12;
 
-function pressure(){
-  const exp = expectedLevel(spawnClock);
-  return clamp(0.85 + (player.level - exp) * 0.045, 0.75, 1.45);
+/* The old director was a straight line — `1 + t/12` — against which the actual XP
+   curve had no chance: by four minutes it expected level 21 from a player who
+   could realistically be at 14, so `pressure()` sat welded to its 0.75 floor for
+   the entire rest of the run and the "reacts to how far ahead you are" system
+   quietly did nothing but make the game easier.
+   Two fixes. The reference curve now flattens the way real levelling does, and it
+   is no longer the only input: the director also reads the two things it can
+   observe directly and cannot mis-model — how full the field is (are you deleting
+   spawns faster than they arrive?) and how healthy you are. Those make it
+   self-correcting no matter how the XP economy is tuned later. */
+const expectedLevel = t => 1 + 7.4*Math.pow(Math.max(0,t)/60, 0.74);
+
+let pressureSmooth = 1;
+function pressureTarget(){
+  const hp    = player.health / player.maxHealth;
+  const crowd = enemies.length / MAX_ENEMIES;
+  const gap   = player.level - expectedLevel(spawnClock);
+  return clamp(
+    1
+    + clamp(hp - 0.72, -0.35, 0.28) * 0.55      // cruising at full hull → lean on them
+    + clamp(0.30 - crowd, -0.30, 0.30) * 0.60   // empty screen → they are dying too fast
+    + clamp(gap, -8, 8) * 0.028,                // build genuinely ahead of the curve
+    0.62, 1.55);
 }
+// smoothed so a single unlucky second cannot spike the spawn budget
+function updatePressure(dt){
+  pressureSmooth += (pressureTarget() - pressureSmooth) * (1 - Math.exp(-dt*0.5));
+}
+function pressure(){ return pressureSmooth; }
 
 function updateSpawning(dt){
   const bossFight = bossAlive && bossRef && !bossRef.dead;
@@ -2102,16 +2313,26 @@ function updateSpawning(dt){
   // outright meant a player who simply declined to kill the boss froze the
   // entire difficulty curve and farmed survival time for free.
   spawnClock += dt * (bossFight ? 0.4 : 1);
+  updatePressure(dt);
   const pr = pressure();
 
   spawnTimer -= dt;
   if (spawnTimer <= 0){
-    spawnTimer = Math.max(0.22, (1.2 - spawnClock*0.0065) / pr) * (bossFight ? 2.8 : 1);
+    spawnTimer = Math.max(0.26, (1.2 - spawnClock*0.0055) / pr) * (bossFight ? 2.8 : 1);
     const types = availableTypes(spawnClock);
-    let count = bossFight ? 1 : Math.max(1, Math.round(clamp(1 + Math.floor(spawnClock/85), 1, 6) * pr));
-    // at the body cap, escalate QUALITY instead of quantity
-    const crowded = enemies.length > MAX_ENEMIES*0.85;
-    const eliteChance = clamp((spawnClock-45) * 0.0011, 0, 0.16) * pr * (crowded ? 3 : 1);
+    // gentler ramp than the old /85: the field used to saturate to the body cap
+    // inside four minutes, after which the director had no headroom left to push
+    // OR back off with, and every late run flattened into the same wall of grunts
+    let count = bossFight ? 1 : Math.max(1, Math.round(clamp(1 + Math.floor(spawnClock/110), 1, 5) * pr));
+    /* Escalate QUALITY instead of quantity at both ends of the population range.
+       `crowded` was the only case handled, but the opposite one matters more: a
+       finished build deletes spawns on arrival, so the field sits near empty and
+       the director — already pinned at its ceiling — had no lever left to pull.
+       Feeding a starving screen elites rather than more grunts is that lever, and
+       it pays the player back in XP for the trouble. */
+    const crowded  = enemies.length > MAX_ENEMIES*0.85;
+    const starving = enemies.length < MAX_ENEMIES*0.25;
+    const eliteChance = clamp((spawnClock-45) * 0.0011, 0, 0.20) * pr * (crowded ? 3 : starving ? 2 : 1);
     for (let i=0;i<count;i++){
       const isElite = spawnClock > 45 && Math.random() < eliteChance;
       spawnEnemy(pick(types), isElite ? {elite:true} : undefined);
@@ -2430,7 +2651,8 @@ function playerDmgMult(){ return berserkMult() * surgeMult(); }
 // with whatever build you actually assembled instead of a flat number
 function estimatedDPS(){
   const p = player;
-  return p.damage * p.fireRate * p.projectileCount * (1 + p.critChance*(p.critMult-1));
+  return p.damage * p.fireRate * p.projectileCount * volleyMult(p.projectileCount)
+       * (1 + p.critChance*(p.critMult-1));
 }
 
 /* ---------- OVERLOAD ----------
@@ -2439,6 +2661,21 @@ function estimatedDPS(){
    damage dealt (so it rewards leaning in, not hiding), and it cashes out as a
    detonation that also wipes nearby enemy fire — an earned escape from the one
    death that always felt cheap, being sealed in by a bullet ring. */
+/* Overload charged on a flat 1.6 per normal kill, which at a late-game kill rate
+   of ten a second meant a full meter every six seconds — a five-second window of
+   +80% fire rate, +18% speed, refunded dashes and a screen wipe, available almost
+   permanently. The panic button had become the resting state. Damage-sourced
+   charge now spends a refilling budget: you can still cash a burst instantly, but
+   the sustained floor is ~18s between detonations (~9s fully invested in
+   Capacitor Bank, which is exactly what that card should be buying). */
+function addUltFromDamage(n){
+  const u = player.ult;
+  if (u.budget <= 0) return;
+  const take = Math.min(n, u.budget);
+  u.budget -= take;
+  addUlt(take);
+}
+
 function addUlt(n){
   const u = player.ult;
   if (u.charge >= u.max) return;
@@ -2524,7 +2761,7 @@ function firePlayerWeapon(){
   const convD = Math.max(td, 240);                 // never converge so close the flanks cross violently
   const cx = player.x + ca*convD, cy = player.y + sa*convD;
   const halfW = n === 1 ? 0 : Math.min(70, 10 + n*5.5) * (player.spreadBase / 0.11);
-  const dmg = player.damage * playerDmgMult();
+  const dmg = player.damage * playerDmgMult() * volleyMult(n);
 
   for (let i=0;i<n;i++){
     const t = n === 1 ? 0 : (i/(n-1))*2 - 1;
@@ -2574,7 +2811,7 @@ function damageEnemy(e, dmg, isCrit){
   // so it charges at the same pace for a 13-damage Striker and a 32-damage
   // Reaper — the meter measures progress, not build strength.
   damageDealt += dmg;
-  addUlt(clamp(dmg / e.maxHp, 0, 1) * (e.boss ? 35 : e.elite ? 4.5 : 1.6));
+  addUltFromDamage(clamp(dmg / e.maxHp, 0, 1) * (e.boss ? 35 : e.elite ? 4.5 : 1.6));
 
   if (cryo){
     e.slowT = Math.max(e.slowT, cryo.dur);
@@ -2629,7 +2866,11 @@ function killEnemy(e){
   addScore(e.xp * 11 * comboMult());
   spawnGem(e.x, e.y, e.xp);
 
-  if (player.lifesteal > 0) healPlayer(player.maxHealth * player.lifesteal);
+  if (player.lifesteal > 0 && player.lsBudget > 0){
+    const amt = Math.min(player.lifesteal, player.lsBudget);
+    player.lsBudget -= amt;
+    healPlayer(player.maxHealth * amt);
+  }
 
   if (e.splits){
     for (let i=0;i<2;i++){
@@ -2752,9 +2993,9 @@ function resolveDeath(){
     burst(player.x, player.y, '#39ff88', 60, {minSpd:120,maxSpd:460,minLife:0.4,maxLife:0.85});
     spawnText(player.x, player.y-34, 'EMERGENCY REBOOT', '#39ff88', 22, 1.5);
     Audio_.levelup();
-    gridQuery(player.x, player.y, 240, qB);
-    for (let i=0;i<qB.length;i++){
-      const e = qB[i];
+    gridQuery(player.x, player.y, 240, qD);
+    for (let i=0;i<qD.length;i++){
+      const e = qD[i];
       if (!e.dead && dist2(player.x,player.y,e.x,e.y) < 240*240) damageEnemy(e, 160, false);
     }
     return;
@@ -2763,7 +3004,13 @@ function resolveDeath(){
   gameOver();
 }
 
+/* Reentrancy guard. A discharge that kills a bomber damages the player, which
+   fires another discharge, which walks the same qB the outer one is iterating —
+   at best duplicate damage, at worst an unbounded chain off a single hit. */
+let retaliating = false;
 function retaliateBlast(){
+  if (retaliating) return;
+  retaliating = true;
   const r = 190;
   burst(player.x, player.y, '#39ff88', 26, {minSpd:140,maxSpd:420,minLife:0.25,maxLife:0.5});
   spawnArc(player.x-r, player.y, player.x+r, player.y, '#39ff88');
@@ -2772,6 +3019,7 @@ function retaliateBlast(){
     const e = qB[i];
     if (!e.dead && dist2(player.x,player.y,e.x,e.y) < r*r) damageEnemy(e, player.retaliate, false);
   }
+  retaliating = false;
 }
 
 function grantXP(amount){
@@ -2780,7 +3028,13 @@ function grantXP(amount){
   while (player.xp >= player.xpToNext && guard++ < 50){
     player.xp -= player.xpToNext;
     player.level++;
-    player.xpToNext = Math.round(5 + player.level*3.6 + Math.pow(player.level, 1.62));
+    /* Past the point where every capped line is finished, levels arrived every
+       six or seven seconds — a card screen interrupting the fight ten times a
+       minute to hand out a fraction of a percent. The curve is untouched up to
+       45 (early pacing was good) and steepens after, so late level-ups stay
+       occasional and stay worth stopping for. */
+    const late = 1 + Math.max(0, player.level - 45) * 0.02;
+    player.xpToNext = Math.round(5 + player.level*3.6 + Math.pow(player.level, 1.62) * late);
     pendingLevelUps++;
     levelUpReason = 'LEVEL UP';
     if (player.level % 4 === 0) player.rerolls++;
@@ -2860,6 +3114,9 @@ function updatePlayer(dt){
   }
   retargetT -= dt;
   addUlt(dt * 0.9);              // slow trickle so a quiet patch still builds it
+  // refilling budgets — 1.5s of banked headroom keeps burst play feeling uncapped
+  player.ult.budget = Math.min(ULT_DMG_CAP*1.5,   player.ult.budget + dt*ULT_DMG_CAP);
+  player.lsBudget   = Math.min(LIFESTEAL_CAP*1.5, player.lsBudget   + dt*LIFESTEAL_CAP);
 
   /* ---- movement ---- */
   const speedMult = (overdriveActive ? 1 + player.overdrive.speedBonus : 1)
@@ -2873,7 +3130,7 @@ function updatePlayer(dt){
     // afterimage ribbon
     addParticle(player.x, player.y, rand(-25,25), rand(-25,25), 0.28, rand(4,7), '#05f2f2', 0, 0.9);
     if (d.dmg > 0){
-      gridQuery(player.x, player.y, player.radius + 26, qA);
+      gridQuery(player.x, player.y, player.radius + 72, qA);
       for (let i=0;i<qA.length;i++){
         const e = qA[i];
         if (e.dead || e.lastDashHit === d.seq) continue;
@@ -2979,7 +3236,7 @@ function updatePlayer(dt){
       const a = o.ang + (TAU/o.count)*i;
       const bx = player.x + Math.cos(a)*o.radius;
       const by = player.y + Math.sin(a)*o.radius;
-      gridQuery(bx, by, 30, qA);
+      gridQuery(bx, by, 70, qA);      // 70 covers a boss radius; 30 silently missed them
       for (let k=0;k<qA.length;k++){
         const e = qA[k];
         if (e.dead || e.orbitCd > 0) continue;
@@ -3042,7 +3299,7 @@ function updatePlayer(dt){
 
   if (d.t <= 0 && player.invT <= 0 && contactGrace <= 0){
     let top = 0, sum = 0, n = 0, topX = 0, topY = 0;
-    gridQuery(player.x, player.y, player.radius + 44, qA);
+    gridQuery(player.x, player.y, player.radius + 72, qA);
     for (let i=0;i<qA.length;i++){
       const e = qA[i];
       if (e.dead || e.touchCd > 0) continue;
@@ -3128,8 +3385,12 @@ function updateEnemies(dt){
 
     /* ---------- crowd separation ----------
        Without this every mob converges to a single point and 40 enemies read
-       as one blob you cannot parse or thread a dash through.                  */
-    if (!e.boss){
+       as one blob you cannot parse or thread a dash through.
+       Skipped off-screen: separation is a purely COSMETIC de-clumping and it was
+       the single most expensive thing in the frame — one grid query per enemy per
+       frame, two hundred times over, to tidy up a crowd nobody can see. They
+       re-spread the moment they come into view.                                */
+    if (!e.boss && inView(e.x, e.y, 220)){
       let sx = 0, sy = 0, cnt = 0;
       gridQuery(e.x, e.y, e.radius*2 + 12, qA);
       for (let k=0;k<qA.length;k++){
@@ -3168,6 +3429,55 @@ function updateEnemies(dt){
         e.x += (dx/d) * espd * dt;
         e.y += (dy/d) * espd * dt;
         if (d < e.radius + player.radius + 34){ e.fuse = 0.65; Audio_.warn(); }
+      }
+    }
+    else if (e.lancer){
+      /* Wind up on a tracked heading, commit, then run it. The commit is the
+         whole point: once the lane is painted it stops tracking, so the answer
+         is to move out of the line — a skill check the roster did not have. */
+      if (e.chargeState === 'wind'){
+        e.aimAng = Math.atan2(dy,dx);
+        e.windupT -= dt;
+        if (e.windupT <= 0){
+          e.chargeState = 'run';
+          e.chargeTimer = 0.42;
+          e.chargeDirX = Math.cos(e.aimAng); e.chargeDirY = Math.sin(e.aimAng);
+          e.chargeHit = false;
+        }
+      } else if (e.chargeState === 'run'){
+        e.x += e.chargeDirX * espd * 5.2 * dt;
+        e.y += e.chargeDirY * espd * 5.2 * dt;
+        if (!reducedMotion) addParticle(e.x, e.y, rand(-25,25), rand(-25,25), 0.24, rand(2,4), '#ff2020', 0, 0.9);
+        e.chargeTimer -= dt;
+        if (!e.chargeHit && d < e.radius + player.radius + 10){
+          e.chargeHit = true;
+          damagePlayer(e.dmg, false, e.x, e.y);
+        }
+        // it overshoots and has to turn around — that recovery window is your opening
+        if (e.chargeTimer <= 0){ e.chargeState = 'idle'; e.chargeTimer = rand(1.5,2.4); }
+      } else {
+        e.x += (dx/d) * espd * 0.55 * dt;
+        e.y += (dy/d) * espd * 0.55 * dt;
+        e.chargeTimer -= dt;
+        if (e.chargeTimer <= 0 && d < 560){ e.chargeState = 'wind'; e.windupT = 0.55; }
+      }
+    }
+    else if (e.sower){
+      // hangs back and seeds the ground WHERE YOU ARE HEADING, not where you are:
+      // running in a straight line is what gets you poisoned
+      const desired = 300;
+      const moveScale = clamp((d - desired)/80, -1, 1);
+      e.x += (dx/d) * espd * moveScale * dt;
+      e.y += (dy/d) * espd * moveScale * dt;
+      e.fireTimer -= dt;
+      e.aimAng = Math.atan2(dy,dx);
+      e.windup = d < 700 ? clamp(1 - e.fireTimer/0.7, 0, 1) : 0;
+      if (e.fireTimer <= 0 && d < 700){
+        e.fireTimer = rand(3.4,4.6);
+        const lead = rand(0.3, 0.85);
+        spawnHazard(player.x + player.mvx*player.speed*lead,
+                    player.y + player.mvy*player.speed*lead,
+                    70, e.dmg*0.55, 7, '#5b8cff');
       }
     }
     else if (e.weaves){
@@ -3226,9 +3536,13 @@ function updateEnemies(dt){
     e.x = clamp(e.x, e.radius, WORLD_W - e.radius);
     e.y = clamp(e.y, e.radius, WORLD_H - e.radius);
 
-    // velocity estimate feeds the weapon's target leading
-    e._vx = (e.x - px0) / dt;
-    e._vy = (e.y - py0) / dt;
+    /* Velocity estimate feeds the weapon's target leading. It has to be SMOOTHED:
+       the raw per-frame delta also contains bullet knockback, crowd separation
+       and pylon push-out, so a mob being shot reported wild velocities and the
+       auto-aim led its shots into empty space exactly when it mattered most. */
+    const k = 1 - Math.exp(-dt*7);
+    e._vx += (((e.x - px0)/dt) - e._vx) * k;
+    e._vy += (((e.y - py0)/dt) - e._vy) * k;
   }
   compact(enemies);
 }
@@ -3260,6 +3574,15 @@ function bossPhaseShift(e){
   for (let i=0;i<shots;i++){
     fireEnemyBullet(e, off + (TAU/shots)*i, 250, e.dmg*0.5, 6, FOE_SHOT);
   }
+  // UNSTABLE: the phase break also takes ground away, so the arena you fought
+  // phase one in is not the arena you fight phase two in
+  if (e.unstable){
+    const off2 = rand(0,TAU);
+    for (let i=0;i<5;i++){
+      const a = off2 + (TAU/5)*i, rr = rand(120, 240);
+      spawnHazard(e.x + Math.cos(a)*rr, e.y + Math.sin(a)*rr, 78, e.dmg*0.42, 9, '#ff8a2e');
+    }
+  }
   e.baseSpeed *= 1.16;
   e.speed *= 1.16;
   e.fireTimer = Math.min(e.fireTimer, 0.9);
@@ -3268,6 +3591,20 @@ function bossPhaseShift(e){
 function updateBoss(e, dt, dx, dy, d){
   const enrageDmg = 1 + e.enrage*0.5;
   const bspd = e.speed * e._slow;
+
+  // LEGION: an escort on a timer, independent of which boss is wearing the affix
+  if (e.legion){
+    e.legionT -= dt;
+    if (e.legionT <= 0 && enemies.length < MAX_ENEMIES - 12){
+      e.legionT = e.legion * (1 - e.enrage*0.35);
+      burst(e.x, e.y, '#c86bff', 18, {minSpd:60,maxSpd:220,minLife:0.3,maxLife:0.55});
+      const types = availableTypes(spawnClock);
+      for (let i=0;i<3;i++){
+        const a = rand(0,TAU);
+        spawnEnemy(pick(types), { pos:{ x:e.x+Math.cos(a)*70, y:e.y+Math.sin(a)*70 } });
+      }
+    }
+  }
 
   const frac = e.hp / e.maxHp;
   const wantPhase = frac <= 0.30 ? 2 : (frac <= 0.60 ? 1 : 0);
@@ -3401,7 +3738,10 @@ function updateBullets(dt){
     }
 
     let killed = false;
-    gridQuery(b.x, b.y, b.radius + 34, qA);
+    // margin must cover the LARGEST body we hit-test, not a typical one: a boss is
+    // radius 56, so a query of b.radius+34 could legitimately fail to return the
+    // thing the bullet is standing inside
+    gridQuery(b.x, b.y, b.radius + 62, qA);
     for (let i=0;i<qA.length;i++){
       const e = qA[i];
       if (e.dead) continue;
@@ -3687,6 +4027,7 @@ function loop(now){
     updateGems(gdt);
     updateCrates(gdt);
     updatePickups(gdt);
+    updateHazards(gdt);
     updateCamera(gdt);
 
     // the danger vignette is easy to tune out mid-fight; a pulse in your ears is
@@ -3780,6 +4121,30 @@ function drawPylons(){
     ctx.stroke();
     ctx.restore();
   }
+}
+
+/* Ground hazards read in three stages so the state is never ambiguous: a thin
+   growing ring while it is arming and harmless, a solid filled disc once it
+   bites, and a fade as it dies. Ground you can walk on and ground you cannot
+   must never look the same for even a frame. */
+function drawHazards(){
+  if (!hazards.length) return;
+  ctx.save();
+  for (let i=0;i<hazards.length;i++){
+    const h = hazards[i];
+    if (!inView(h.x, h.y, h.r + 20)) continue;
+    const arming = h.life < 0.5;
+    const fade = clamp((h.maxLife - h.life) / 1.2, 0, 1);
+    const grow = arming ? h.life/0.5 : 1;
+    ctx.globalAlpha = (arming ? 0.10 : 0.20) * fade;
+    ctx.fillStyle = h.color;
+    ctx.beginPath(); ctx.arc(h.x, h.y, h.r*grow, 0, TAU); ctx.fill();
+    ctx.globalAlpha = (arming ? 0.45 + 0.4*Math.sin(elapsed*22) : 0.75) * fade;
+    ctx.strokeStyle = h.color;
+    ctx.lineWidth = arming ? 2 : 3;
+    ctx.beginPath(); ctx.arc(h.x, h.y, h.r*grow, 0, TAU); ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawNode(){
@@ -3924,6 +4289,7 @@ function render(){
 
   drawBackground();
   drawNode();
+  drawHazards();
   drawPylons();
 
   /* ---- crates ---- */
@@ -4060,6 +4426,25 @@ function render(){
       ctx.restore();
     }
 
+    // lancer: the painted lane IS the fight. It has to be unmissable, and it has
+    // to stop tracking the moment the charge commits — a tell you cannot outrun
+    // by walking is not a tell, it is a homing missile with extra steps.
+    if (e.lancer && e.chargeState === 'wind'){
+      const t = 1 - clamp(e.windupT/0.55, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.16 + 0.30*t;
+      ctx.strokeStyle = '#ff2020';
+      ctx.lineWidth = e.radius*1.9;
+      ctx.beginPath();
+      ctx.moveTo(e.x, e.y);
+      ctx.lineTo(e.x + Math.cos(e.aimAng)*470, e.y + Math.sin(e.aimAng)*470);
+      ctx.stroke();
+      ctx.globalAlpha = 0.5 + 0.4*Math.sin(elapsed*30);
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.radius+9, 0, TAU); ctx.stroke();
+      ctx.restore();
+    }
+
     // barrel flare: grows over the last 0.45s before a ranged mob shoots
     if (e.windup > 0.05){
       const reach = e.radius + 14 + 26*e.windup;
@@ -4090,22 +4475,32 @@ function render(){
       ctx.restore();
     }
 
-    if (e.elite){
+    // Affixed bosses and elites both wear the rotating dashed ring — it is the
+    // game's one visual word for "this one is not standard"
+    if (e.elite || (e.boss && e.affix)){
+      const ringCol = e.elite ? e.eliteMod.color : e.affix.color;
       ctx.save();
       ctx.globalAlpha = 0.85;
-      ctx.strokeStyle = e.eliteMod.color;
+      ctx.strokeStyle = ringCol;
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 6]);
       ctx.lineDashOffset = -elapsed * 26;
       ctx.beginPath(); ctx.arc(e.x, e.y, e.radius + 8, 0, TAU); ctx.stroke();
       ctx.setLineDash([]);
       ctx.restore();
-      // elite health pip
-      const w = e.radius*2.2;
+    }
+
+    /* Health readout for anything worth aiming at. Only elites had one, so a
+       brute one shot from death looked exactly like a fresh one and there was no
+       way to decide whether to commit or disengage — the single most useful
+       piece of information in a fight was the one being withheld. Kept off the
+       small chaff so a screen of forty runners does not turn into forty bars. */
+    if (!e.boss && (e.elite || e.radius >= 18) && e.hp < e.maxHp){
+      const w = e.radius*2.2, bx = e.x - w/2, by = e.y - e.radius - 13;
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillRect(e.x - w/2, e.y - e.radius - 13, w, 4);
-      ctx.fillStyle = e.eliteMod.color;
-      ctx.fillRect(e.x - w/2, e.y - e.radius - 13, w*clamp(e.hp/e.maxHp,0,1), 4);
+      ctx.fillRect(bx, by, w, 4);
+      ctx.fillStyle = e.elite ? e.eliteMod.color : '#ff5f7a';
+      ctx.fillRect(bx, by, w*clamp(e.hp/e.maxHp,0,1), 4);
     }
 
     if (e.boss && e.bossType === 'juggernaut' && e.chargeState === 'telegraph'){
@@ -4257,9 +4652,18 @@ function render(){
 
   /* ---- screen space ---- */
   if (state !== 'start'){
+    // Elites are the one off-screen thing that can kill you before you ever see
+    // it — a SWIFT elite closes from outside the viewport faster than you can
+    // react to the glow. Capped at three so the edge never turns into a wreath.
+    let eliteArrows = 0;
     for (let i=0;i<enemies.length;i++){
       const e = enemies[i];
-      if (e.boss) drawEdgeIndicator(e.x, e.y, e.glow, 'BOSS');
+      if (e.dead) continue;
+      if (e.boss){ drawEdgeIndicator(e.x, e.y, e.glow, 'BOSS'); }
+      else if (e.elite && eliteArrows < 3 && dist2(e.x, e.y, player.x, player.y) < 1300*1300){
+        drawEdgeIndicator(e.x, e.y, e.eliteMod.color, 'ELITE');
+        eliteArrows++;
+      }
     }
     if (node) drawEdgeIndicator(node.x, node.y, '#f9e838', 'NODE');
 
@@ -4486,9 +4890,10 @@ function unlockClass(id){
 function resetGame(){
   const cls = classById(selectedClass);
   player = newPlayer(cls);
-  enemies.length = 0; crates.length = 0; pickups.length = 0;
+  enemies.length = 0; crates.length = 0; pickups.length = 0; hazards.length = 0;
   novaRings.length = 0; dmgDirs.length = 0;
   stickyTarget = null; retargetT = 0; lowHpT = 0;
+  seenTypes = {}; pressureSmooth = 1; retaliating = false;
   for (const pool of [PARTS, BULLETS, EBULLETS, GEMS, TEXTS, ARCS]){
     for (let i=0;i<pool.items.length;i++){ pool.items[i].active = false; pool.items[i].magnetized = false; }
     pool.ptr = 0;
@@ -4542,11 +4947,13 @@ function togglePause(){
   if (state === 'playing'){
     state = 'paused';
     dashQueued = false; ultQueued = false;
+    Audio_.duck(true);
     pauseScreen.classList.remove('hidden');
   } else if (state === 'paused'){
     state = 'playing';
     dashQueued = false; ultQueued = false;
     lastT = performance.now();
+    Audio_.duck(false);
     pauseScreen.classList.add('hidden');
   }
 }
@@ -4559,6 +4966,7 @@ function showLevelUpCard(){
   state = 'levelup';
   banishArmed = false;
   document.getElementById('luHeader').textContent = levelUpReason;
+  Audio_.duck(true);
   levelupScreen.classList.remove('hidden');
   renderCards(rollOffers(3));
   Audio_.levelup();
@@ -4667,7 +5075,7 @@ function pickCard(idx){
   pendingLevelUps = Math.max(0, pendingLevelUps - 1);
   state = 'playing';
   lastT = performance.now();
-  if (pendingLevelUps > 0) showLevelUpCard();
+  if (pendingLevelUps > 0) showLevelUpCard(); else Audio_.duck(false);
 }
 
 /* SKIP. When all three cards are chaff — every line you care about is capped and
@@ -4685,7 +5093,7 @@ function skipLevelUp(){
   pendingLevelUps = Math.max(0, pendingLevelUps - 1);
   state = 'playing';
   lastT = performance.now();
-  if (pendingLevelUps > 0) showLevelUpCard();
+  if (pendingLevelUps > 0) showLevelUpCard(); else Audio_.duck(false);
 }
 
 function doReroll(){
@@ -4772,12 +5180,14 @@ function openStats(){
   if (state !== 'playing') return;
   state = 'stats';
   statsPanelContent.innerHTML = buildStatsHTML();
+  Audio_.duck(true);
   statsScreen.classList.remove('hidden');
 }
 function closeStats(){
   if (state !== 'stats') return;
   state = 'playing';
   lastT = performance.now();
+  Audio_.duck(false);
   statsScreen.classList.add('hidden');
 }
 function toggleStats(){
