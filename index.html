@@ -119,6 +119,22 @@
   .controls b{ color:var(--yellow); text-shadow:0 0 6px rgba(249,232,56,0.6); }
   .bestscore{ margin-top:8px; color:var(--yellow); font-size:12.5px; letter-spacing:2px; text-shadow:0 0 8px rgba(249,232,56,0.5); }
 
+  /* ---------- difficulty select ---------- */
+  .diffRow{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+  .diffBtn{
+    pointer-events:auto; cursor:pointer;
+    flex:1 1 0; min-width:96px; max-width:160px;
+    padding:8px 6px; border-radius:10px;
+    background:rgba(14,16,32,0.85);
+    border:1px solid rgba(255,255,255,0.15);
+    transition:border-color .12s ease, box-shadow .12s ease, transform .12s ease;
+  }
+  .diffBtn:hover, .diffBtn:focus{ outline:none; transform:translateY(-2px); }
+  .diffBtn .dName{ font-size:11px; font-weight:900; letter-spacing:1.5px; }
+  .diffBtn .dMult{ font-size:8.5px; letter-spacing:1px; color:#7f97ad; margin-top:2px; }
+  .diffBtn.sel{ box-shadow:0 0 20px currentColor; }
+  .diffBlurb{ font-size:9.5px; letter-spacing:1px; color:#7f97ad; margin-top:7px; min-height:13px; }
+
   /* ---------- class select ---------- */
   .classGrid{ display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin:4px 0 2px; }
   .classCard{
@@ -369,6 +385,13 @@
     font-size:8.5px; letter-spacing:2px; padding:2px 9px; border-radius:9px;
     background:#0a0c1a; border:1px solid currentColor; white-space:nowrap;
   }
+  /* the concrete number a card moves, shown where the choice is made */
+  .card .cprev{
+    margin-top:7px; font-size:9px; letter-spacing:0.5px; color:#7f97ad;
+    background:rgba(0,0,0,0.28); border-radius:6px; padding:3px 5px; white-space:nowrap;
+  }
+  .card .cprev b{ color:#fff; font-weight:700; }
+  .card .cprev i{ color:var(--green); font-style:normal; }
   .card .cpips{ display:flex; gap:3px; justify-content:center; margin-top:7px; }
   .card .cpips i{ width:11px; height:3px; border-radius:2px; background:rgba(255,255,255,0.16); }
   .card .cpips i.on{ background:currentColor; box-shadow:0 0 6px currentColor; }
@@ -413,6 +436,9 @@
   #luHint{ font-size:9.5px; color:#5b7185; letter-spacing:1.5px; margin-top:8px; }
 
   /* ---------- game over ---------- */
+  #killedBy{ font-size:10px; letter-spacing:2.5px; color:#9fb3c8; margin-bottom:10px; }
+  #killedBy b{ color:var(--magenta); text-shadow:0 0 8px rgba(255,46,166,0.6); }
+  #goDiff{ font-size:9.5px; letter-spacing:2px; margin-bottom:6px; }
   .scoreBig{ font-size:clamp(30px,7vw,52px); font-weight:900; color:var(--yellow); text-shadow:0 0 20px rgba(249,232,56,0.6); line-height:1.1; }
   .goGrid{ display:flex; flex-wrap:wrap; gap:6px 0; margin-top:12px; }
   .goCell{ width:50%; font-size:11px; letter-spacing:1px; color:#9fb3c8; text-align:left; padding:3px 8px; }
@@ -545,6 +571,9 @@
         <b style="color:var(--purple)">OVERLOAD</b> for a screen-clearing detonation.
         Crack loot caches, hold Overcharge Nodes, and evolve a build before the bosses catch up.
       </div>
+      <div class="subtitle" style="margin:16px 0 8px;font-size:11px;">THREAT PROFILE</div>
+      <div class="diffRow" id="diffRow"></div>
+      <div class="diffBlurb" id="diffBlurb"></div>
       <div class="subtitle" style="margin:16px 0 8px;font-size:11px;">SELECT PILOT</div>
       <div class="classGrid" id="classGrid"></div>
       <div class="controls">
@@ -581,7 +610,8 @@
         <div><b>WASD</b> move</div><div><b>SPACE</b> dash</div><div><b>E</b> overload</div><div><b>I</b> loadout</div><div><b>M</b> mute</div>
       </div>
       <button class="btn" id="resumeBtn">▶ RESUME</button>
-      <button class="btn secondary" id="restartFromPauseBtn">⟲ ABANDON RUN</button>
+      <button class="btn secondary" id="retryFromPauseBtn">⟲ RESTART RUN</button>
+      <button class="btn secondary" id="restartFromPauseBtn">◀ ABANDON RUN</button>
     </div>
   </div>
 
@@ -597,7 +627,9 @@
   <div id="gameoverScreen" class="overlay hidden">
     <div class="title" style="color:#ff2ea6;font-size:clamp(26px,6vw,54px);">SYSTEM FAILURE</div>
     <div class="panel">
+      <div id="goDiff"></div>
       <div id="newRecord" class="bestscore hidden" style="margin-bottom:8px;">★ NEW RECORD ★</div>
+      <div id="killedBy">KILLED BY <b>—</b></div>
       <div style="font-size:10px;letter-spacing:3px;color:#9fb3c8;">FINAL SCORE</div>
       <div class="scoreBig" id="finalScore">0</div>
       <div class="goGrid">
@@ -937,17 +969,31 @@ const Audio_ = (() => {
     }catch(e){}
   }
 
+  /* The bed claimed to tighten as the run heats up, and it never did — a fixed
+     setInterval plays the same tempo over an empty field and over a boss phase
+     change. A self-rescheduling step reads `intensity` at each beat, so the pulse
+     actually accelerates into the fight (460ms idle → 320ms at full pressure) and
+     eases back off when you clear the screen. It is the cheapest dynamic-music
+     system there is and it does most of the work of one. */
+  function scheduleStep(){
+    if (!wantMusic) return;
+    musicTimer = setTimeout(() => {
+      musicTimer = null;
+      musicStep();
+      scheduleStep();
+    }, 460 - intensity*140);
+  }
   function startMusic(){
+    if (wantMusic) return;
     wantMusic = true;
-    if (!ensure()) return;
-    if (musicTimer) return;
+    if (!ensure()){ wantMusic = false; return; }
     musicGain.gain.setTargetAtTime(muted ? 0 : 0.5, ctxA.currentTime, 0.6);
     musicStep();
-    musicTimer = setInterval(musicStep, 460);
+    scheduleStep();
   }
   function stopMusic(){
     wantMusic = false;
-    if (musicTimer){ clearInterval(musicTimer); musicTimer = null; }
+    if (musicTimer){ clearTimeout(musicTimer); musicTimer = null; }
     if (ctxA && musicGain) musicGain.gain.setTargetAtTime(0, ctxA.currentTime, 0.3);
   }
 
@@ -1187,7 +1233,7 @@ let state = 'start';   // start | playing | levelup | paused | stats | gameover
 let elapsed = 0, spawnClock = 0;
 let killCount = 0, score = 0, comboCount = 0, comboTimer = 0, bestCombo = 0;
 let threatLevel = 1;
-let shakeMag = 0, hitStop = 0, freezeT = 0;
+let shakeMag = 0, hitStop = 0, hitStopCd = 0, freezeT = 0;
 // Directional shake. Random-per-axis jitter reads as TV static; a decaying
 // oscillation along one axis reads as an impact with a direction to it.
 let shakeAng = 0, shakeT = 0;
@@ -1199,12 +1245,37 @@ function addShake(m){
 let bossSpawnedCount = 0, bossKills = 0, nextBossTime = 55, bossAlive = false, bossRef = null;
 let nodesHeld = 0, overloadCount = 0, damageDealt = 0;
 let selectedClass = Store.get('ns_class', 'striker');
+let deathCause = '';
+
+/* ============================= DIFFICULTY =============================
+   The director already self-corrects for how well you are doing, but it can only
+   push the dials it owns — it cannot make the game gentler than its own floor or
+   harder than its own ceiling. A player who dies at two minutes and a player who
+   is still bored at twelve were both being handed the same curve, and the only
+   honest answer to that is to let them pick the curve.
+   Score is multiplied to match, so a NIGHTMARE leaderboard entry is worth what it
+   cost, and bests are tracked per tier so the tiers never overwrite each other. */
+const DIFFICULTIES = [
+  { id:'recruit',   name:'RECRUIT',   color:'#39ff88', blurb:'Softer hulls, thinner waves. Room to learn the systems.',
+    hp:0.72, dmg:0.72, spawn:0.82, score:0.75 },
+  { id:'veteran',   name:'VETERAN',   color:'#05f2f2', blurb:'The fight as tuned. Honest odds.',
+    hp:1.00, dmg:1.00, spawn:1.00, score:1.00 },
+  { id:'nightmare', name:'NIGHTMARE', color:'#ff2ea6', blurb:'Harder hulls, denser waves, elites arrive early.',
+    hp:1.38, dmg:1.22, spawn:1.24, score:1.50 },
+];
+const diffById = id => DIFFICULTIES.find(d => d.id === id) || DIFFICULTIES[1];
+let selectedDifficulty = Store.get('ns_diff', 'veteran');
+let DIFF = diffById(selectedDifficulty);
 
 let player = null;
 let enemies = [], crates = [], pickups = [], pylons = [];
 let node = null, nodeTimer = 0;
 
+/* Bests are tracked per threat profile — a RECRUIT record and a NIGHTMARE record
+   are not the same achievement and must never overwrite each other. VETERAN keeps
+   the original unsuffixed keys so existing saves carry straight over. */
 const BEST_TIME_KEY = 'ns_best_time', BEST_SCORE_KEY = 'ns_best_score';
+const bestKey = base => base + (DIFF.id === 'veteran' ? '' : '_' + DIFF.id);
 
 /* ============================= CAMERA ============================= */
 const camera = { x:0, y:0, leadX:0, leadY:0 };
@@ -1296,7 +1367,7 @@ function makePool(n, factory){
 
 const PARTS = makePool(1400, () => ({x:0,y:0,vx:0,vy:0,life:0,maxLife:1,size:2,color:'#fff',grav:0,drag:0.96,glow:false}));
 const BULLETS = makePool(600, () => ({x:0,y:0,vx:0,vy:0,radius:4.5,dmg:0,pierceLeft:0,life:0,maxLife:2,ricochetLeft:0,chainLeft:0,hits:[],trailT:0,drone:false}));
-const EBULLETS = makePool(500, () => ({x:0,y:0,vx:0,vy:0,radius:5,dmg:0,life:0,maxLife:3,homing:false,turnRate:0,color:'#ff5f2e'}));
+const EBULLETS = makePool(500, () => ({x:0,y:0,vx:0,vy:0,radius:5,dmg:0,life:0,maxLife:3,homing:false,turnRate:0,color:'#ff5f2e',src:''}));
 const GEMS = makePool(900, () => ({x:0,y:0,vx:0,vy:0,value:1,radius:5,big:false}));
 const TEXTS = makePool(90, () => ({x:0,y:0,str:'',color:'#fff',size:14,life:0,maxLife:0.8,vy:-40}));
 const ARCS = makePool(80, () => ({x1:0,y1:0,x2:0,y2:0,life:0,maxLife:0.15,color:'#c86bff'}));
@@ -1358,6 +1429,7 @@ function generatePylons(){
     pylons.push({ x, y, r, seed: rand(0,TAU) });
   }
   buildPylonIndex();
+  miniStatic = null;      // the baked minimap layer is now stale
 }
 
 /* Pylon lookup grid. resolvePylons() runs for every enemy every frame and
@@ -1946,6 +2018,45 @@ function rollOffers(n){
   return offers;
 }
 
+/* ---------- card previews ----------
+   "+18% weapon damage" and "-7% damage taken" are not comparable quantities, so
+   every level-up asked you to convert two different percentages into one decision
+   in your head, with no idea what either was a percentage OF. Showing the number
+   that actually moves — your DPS, or your effective hull — turns the card screen
+   from a vocabulary test into a comparison.
+
+   Rather than duplicate every formula (which would drift the moment a card is
+   retuned) the real apply() runs against the live player and is then rolled back.
+   That is only safe for cards whose apply touches nothing but the scalars listed
+   below — anything reaching into a nested system (blades, drones, evolutions)
+   could not be restored this way, so it is deliberately not offered a preview. */
+const DPS_PREVIEW  = { damage:1, firerate:1, multishot:1, crit:1, critdmg:1, projspeed:1, overclock:1, resonance:1 };
+const EHP_PREVIEW  = { maxhp:1, armor:1, bulwark:1 };
+const PREVIEW_KEYS = ['damage','fireRate','projectileCount','critChance','critMult',
+                      'projectileSpeed','maxHealth','health','armor'];
+
+function effectiveHP(){ return player.maxHealth / Math.max(0.2, 1 - player.armor); }
+
+function previewOffer(o){
+  const isDps = !!DPS_PREVIEW[o.u.id], isEhp = !!EHP_PREVIEW[o.u.id];
+  if (!isDps && !isEhp) return '';
+  const p = player;
+  const snap = {};
+  for (const k of PREVIEW_KEYS) snap[k] = p[k];
+  const before = isDps ? estimatedDPS() : effectiveHP();
+  let after;
+  try {
+    o.u.apply(p, o.stacks);
+    after = isDps ? estimatedDPS() : effectiveHP();
+  } finally {
+    for (const k of PREVIEW_KEYS) p[k] = snap[k];
+  }
+  if (!(after > before)) return '';
+  return '<div class="cprev">' + (isDps ? 'DPS' : 'HULL') + ' '
+       + fmtNum(before) + ' <b>→ ' + fmtNum(after) + '</b>'
+       + ' <i>+' + Math.round((after/before - 1)*100) + '%</i></div>';
+}
+
 function applyOffer(o){
   o.u.apply(player, o.stacks);
   if (o.u.evo){
@@ -2007,8 +2118,8 @@ const ELITE_MODS = [
 /* Slightly steeper early, meaningfully gentler past the six-minute mark. The old
    curve's t^1.9 term ran away hard enough that long runs ended at a wall the
    build could never have out-scaled, rather than on a mistake you could name. */
-const hpScale  = t => 1 + t*0.016 + Math.pow(t/86, 1.85);
-const dmgScale = t => 1 + t*0.005  + Math.pow(t/200, 1.35);
+const hpScale  = t => (1 + t*0.016 + Math.pow(t/86, 1.85)) * DIFF.hp;
+const dmgScale = t => (1 + t*0.005  + Math.pow(t/200, 1.35)) * DIFF.dmg;
 // late-game mobs get fast enough to actually catch a boots-stacked player
 const spdScale = t => 1 + Math.min(0.36, t*0.00055);
 
@@ -2127,6 +2238,7 @@ function spawnEnemy(typeKey, opts){
     elite: !!eliteMod, eliteMod, dr: eliteMod && eliteMod.dr ? eliteMod.dr : 0,
     weaveDir: Math.random() < 0.5 ? 1 : -1, weaveT: rand(1.5,3.5),
     fuse: -1, ring: rand(0,TAU),
+    lastDashHit: -1, healT: 0,
     boss: false, dead: false,
   };
   enemies.push(e);
@@ -2149,10 +2261,11 @@ function spawnEnemy(typeKey, opts){
    of open world worth having instead of an arena.                            */
 let hazards = [];
 const MAX_HAZARDS = 26;
-function spawnHazard(x, y, r, dps, life, color){
+function spawnHazard(x, y, r, dps, life, color, src){
   if (hazards.length >= MAX_HAZARDS) hazards.shift();
   hazards.push({ x:clamp(x, r, WORLD_W-r), y:clamp(y, r, WORLD_H-r),
-                 r, dps, life:0, maxLife:life, color:color||'#5b8cff', tick:0, dead:false });
+                 r, dps, life:0, maxLife:life, color:color||'#5b8cff', tick:0, dead:false,
+                 src: src || 'CORROSIVE GROUND' });
 }
 function updateHazards(dt){
   if (!hazards.length) return;
@@ -2167,7 +2280,7 @@ function updateHazards(dt){
       h.tick -= dt;
       if (h.tick <= 0 && dist2(player.x, player.y, h.x, h.y) < rr*rr){
         h.tick = 0.5;
-        damagePlayer(h.dps, false, h.x, h.y);
+        damagePlayer(h.dps, false, h.x, h.y, h.src || 'CORROSIVE GROUND');
       }
     }
     if (!reducedMotion && fxScale > 0.5 && Math.random() < dt*7 && inView(h.x, h.y, h.r)){
@@ -2252,6 +2365,7 @@ function spawnBoss(){
     fireTimer: 1.6, hitFlash:0, touchCd:0, orbitCd:0, stun:0, burn:0, burnDps:0,
     slowT:0, slowAmt:0, _slow:1, _vx:0, _vy:0, windup:0, aimAng:0,
     elite:false, eliteMod:null, dr:0, ring:0,
+    fuse:-1, lastDashHit:-1, healT:0,
     boss:true, dead:false,
     enrage: 0, ageT: 0, phase: 0,
     chargeState:'idle', chargeTimer:rand(3,4.5), chargeDirX:0, chargeDirY:0, chargeHit:false,
@@ -2318,7 +2432,7 @@ function updateSpawning(dt){
 
   spawnTimer -= dt;
   if (spawnTimer <= 0){
-    spawnTimer = Math.max(0.26, (1.2 - spawnClock*0.0055) / pr) * (bossFight ? 2.8 : 1);
+    spawnTimer = Math.max(0.26, (1.2 - spawnClock*0.0055) / (pr * DIFF.spawn)) * (bossFight ? 2.8 : 1);
     const types = availableTypes(spawnClock);
     // gentler ramp than the old /85: the field used to saturate to the body cap
     // inside four minutes, after which the director had no headroom left to push
@@ -2332,7 +2446,14 @@ function updateSpawning(dt){
        it pays the player back in XP for the trouble. */
     const crowded  = enemies.length > MAX_ENEMIES*0.85;
     const starving = enemies.length < MAX_ENEMIES*0.25;
-    const eliteChance = clamp((spawnClock-45) * 0.0011, 0, 0.20) * pr * (crowded ? 3 : starving ? 2 : 1);
+    /* Hard ceiling on the elite RATE. The multipliers here compose — 0.20 base by
+       the four-minute mark, x1.55 director pressure, x3 when the field is full —
+       which reached 0.93, i.e. late game spawned almost nothing but elites. That
+       is a death spiral (they are exactly what you already cannot clear) and it
+       drowned the field in the powerup each one drops. Capped, an elite stays what
+       the name says: a spike in the wave, not the wave. */
+    const eliteChance = Math.min(0.40,
+      clamp((spawnClock-45) * 0.0011, 0, 0.20) * pr * (crowded ? 2.2 : starving ? 2 : 1) * DIFF.spawn);
     for (let i=0;i<count;i++){
       const isElite = spawnClock > 45 && Math.random() < eliteChance;
       spawnEnemy(pick(types), isElite ? {elite:true} : undefined);
@@ -2530,7 +2651,17 @@ let dashSeq = 0;
 let dmgTextBudget = 0;
 
 function comboMult(){ return 1 + Math.min(comboCount, 60) * 0.05; }
-function addScore(n){ score += Math.round(n); }
+function addScore(n){ score += Math.round(n * DIFF.score); }
+
+/* Every enemy needs a name you can be told you died to. "You got hit" is the one
+   piece of feedback the game already gives well; "the SWIFT LANCER behind you got
+   you" is the piece that changes how the next run is played. */
+function foeLabel(e){
+  if (!e) return 'THE GRID';
+  if (e.boss) return (e.bossName || 'BOSS').toUpperCase();
+  const base = e.type.toUpperCase();
+  return e.elite && e.eliteMod ? e.eliteMod.name + ' ' + base : base;
+}
 
 /* Directional damage feedback. A full-screen red flash tells you that you got
    hit; it never tells you what hit you, which is the only part you can act on.
@@ -2832,11 +2963,24 @@ function damageEnemy(e, dmg, isCrit){
   burst(e.x, e.y, isCrit ? '#f9e838' : '#ffffff', isCrit ? 5 : 2,
         {minSpd:60,maxSpd:180,minLife:0.14,maxLife:0.3,minSize:1.4,maxSize:2.6});
 
-  // damage numbers: always for crits and bosses, sampled otherwise so the
-  // screen stays readable and the text pool never thrashes
+  /* damage numbers: crits and bosses get priority, everything else is sampled,
+     so the screen stays readable and the text pool never thrashes. Crits used to
+     be exempt from the budget entirely — at five projectiles, ten shots a second
+     and 60% crit that is thirty numbers a second fighting for ninety slots. */
   if (isCrit){
-    spawnText(e.x, e.y-e.radius-4, Math.round(dmg)+'!', '#f9e838', 15, 0.5);
-    hitStop = Math.max(hitStop, 0.022);
+    if (dmgTextBudget > 0){
+      dmgTextBudget--;
+      spawnText(e.x, e.y-e.radius-4, Math.round(dmg)+'!', '#f9e838', 15, 0.5);
+    }
+    /* Impact frames are a punctuation mark, and punctuation on every word is
+       noise. Unrated, this fired on every crit: a built-out crit build lands them
+       faster than the 0.022s window drains, so the late game quietly ran in
+       permanent stuttering slow motion — and because `elapsed` advances on the
+       slowed clock, it was under-counting your survival time too. */
+    if (hitStopCd <= 0){
+      hitStopCd = 0.16;
+      hitStop = Math.max(hitStop, 0.022);
+    }
   } else if (e.boss){
     spawnText(e.x + rand(-14,14), e.y-e.radius-4, String(Math.round(dmg)), '#ffffff', 12, 0.42);
   } else if (dmgTextBudget > 0){
@@ -2882,15 +3026,18 @@ function killEnemy(e){
   if (e.bomber){
     triggerExplosion(e.x, e.y, e.dmg*1.5, 92, e, '#ff5f2e');
     burst(e.x, e.y, '#ff5f2e', 26, {minSpd:120,maxSpd:420,minLife:0.25,maxLife:0.55});
-    if (dist2(player.x,player.y,e.x,e.y) < 92*92) damagePlayer(e.dmg*1.1, false, e.x, e.y);
+    if (dist2(player.x,player.y,e.x,e.y) < 92*92) damagePlayer(e.dmg*1.1, false, e.x, e.y, foeLabel(e));
   }
   if (e.elite){
     if (e.eliteMod.key === 'volatile'){
       triggerExplosion(e.x, e.y, e.dmg*2.2, 165, e, '#ff8a2e');
       burst(e.x, e.y, '#ff8a2e', 40, {minSpd:150,maxSpd:520,minLife:0.3,maxLife:0.7});
-      if (dist2(player.x,player.y,e.x,e.y) < 165*165) damagePlayer(e.dmg*1.5, false, e.x, e.y);
+      if (dist2(player.x,player.y,e.x,e.y) < 165*165) damagePlayer(e.dmg*1.5, false, e.x, e.y, foeLabel(e));
     }
-    spawnPickup(e.x, e.y);
+    // A guaranteed powerup per elite was fine when elites were rare. Once the
+    // director learned to spawn them in bunches it carpeted the field in free
+    // nukes and freezes, and a resource you trip over stops being a reward.
+    if (Math.random() < 0.45) spawnPickup(e.x, e.y);
     spawnGem(e.x + rand(-12,12), e.y + rand(-12,12), Math.round(e.xp*0.5));
     addScore(300);
     hitStop = Math.max(hitStop, 0.05);
@@ -2900,7 +3047,10 @@ function killEnemy(e){
     bossAlive = false;
     bossKills++;
     if (bossRef === e) bossRef = null;
-    nextBossTime = elapsed + 58 + bossKills*8;
+    // Bosses are the run's only named beats, and the old spacing pushed them
+    // further apart the better you did — by the fifth kill you were waiting a
+    // minute and a half between the parts of the game that have a shape to them.
+    nextBossTime = elapsed + Math.min(78, 54 + bossKills*5);
     hitStop = Math.max(hitStop, 0.22);
     Audio_.bossDown();
     Audio_.setIntensity(0.4);
@@ -2921,10 +3071,11 @@ function killEnemy(e){
    melee-range builds stay viable. Its rate limit is the per-enemy touch
    cooldown plus contactGrace, both owned by the caller. */
 let contactGrace = 0;
-function contactDamage(amount, sx, sy){
+function contactDamage(amount, sx, sy, src){
   if (state !== 'playing') return;
   if (player.dash.t > 0) return;
   markHitDir(sx, sy);
+  if (src) deathCause = src;
 
   if (player.shield && player.shield.charges > 0 && amount >= player.maxHealth*0.05){
     player.shield.charges--;
@@ -2949,11 +3100,12 @@ function contactDamage(amount, sx, sy){
   if (player.health <= 0) resolveDeath();
 }
 
-function damagePlayer(amount, ignoreIFrames, sx, sy){
+function damagePlayer(amount, ignoreIFrames, sx, sy, src){
   if (state !== 'playing') return;
   if (player.dash.t > 0) return;                  // dashing is a real dodge
   if (player.invT > 0 && !ignoreIFrames) return;
   markHitDir(sx, sy);
+  if (src) deathCause = src;
 
   if (player.shield && player.shield.charges > 0){
     player.shield.charges--;
@@ -3049,7 +3201,10 @@ function tryDash(){
   if (d.t > 0) return;
   if (d.charges <= 0){ Audio_.dashFail(); return; }
   let mx = player.mvx, my = player.mvy;
-  if (mx === 0 && my === 0){ mx = Math.cos(player.aim); my = Math.sin(player.aim); }
+  // A standing dash used to fire along `aim`, i.e. straight at whatever the gun
+  // had picked — the one direction a panic button must never send you. `facing`
+  // is the last direction you actually drove, which is what the input meant.
+  if (mx === 0 && my === 0){ mx = Math.cos(player.facing); my = Math.sin(player.facing); }
   const m = Math.hypot(mx,my) || 1;
   mx /= m; my /= m;
 
@@ -3129,6 +3284,27 @@ function updatePlayer(dt){
     player.y += d.dirY * player.speed * d.power * dt;
     // afterimage ribbon
     addParticle(player.x, player.y, rand(-25,25), rand(-25,25), 0.28, rand(4,7), '#05f2f2', 0, 0.9);
+    /* Perfect dodge only ever counted bullets, so the three attacks the dash was
+       BUILT to answer — a lancer's committed lane, a juggernaut's charge, a lit
+       bomber — paid nothing for threading them. Those are the bravest dodges in
+       the game and they were the only ones that went unrewarded. */
+    if (d.dodgeSeq !== d.seq){
+      gridQuery(player.x, player.y, player.radius + 96, qA);
+      for (let i=0;i<qA.length;i++){
+        const e = qA[i];
+        if (e.dead) continue;
+        const committed = (e.lancer && e.chargeState === 'run')
+                       || (e.boss && e.chargeState === 'dash')
+                       || (e.bomber && e.fuse >= 0);
+        if (!committed) continue;
+        const gr = e.radius + player.radius + 30;
+        if (dist2(player.x, player.y, e.x, e.y) < gr*gr){
+          d.dodgeSeq = d.seq;
+          perfectDodge();
+          break;
+        }
+      }
+    }
     if (d.dmg > 0){
       gridQuery(player.x, player.y, player.radius + 72, qA);
       for (let i=0;i<qA.length;i++){
@@ -3298,7 +3474,7 @@ function updatePlayer(dt){
   if (contactGrace > 0) contactGrace -= dt;
 
   if (d.t <= 0 && player.invT <= 0 && contactGrace <= 0){
-    let top = 0, sum = 0, n = 0, topX = 0, topY = 0;
+    let top = 0, sum = 0, n = 0, topX = 0, topY = 0, topE = null;
     gridQuery(player.x, player.y, player.radius + 72, qA);
     for (let i=0;i<qA.length;i++){
       const e = qA[i];
@@ -3309,7 +3485,7 @@ function updatePlayer(dt){
         e.touchCd = 0.7;
         const dmg = e.dmg * (e.boss ? 1.3 : 1);
         sum += dmg;
-        if (dmg > top){ top = dmg; topX = e.x; topY = e.y; }
+        if (dmg > top){ top = dmg; topX = e.x; topY = e.y; topE = e; }
         n++;
         // shove the attacker off so a swarm cannot pin you inside itself
         if (!e.boss){
@@ -3323,7 +3499,7 @@ function updatePlayer(dt){
     if (n > 0){
       const total = Math.min(top + (sum - top)*0.30, player.maxHealth*0.26);
       contactGrace = 0.32;
-      contactDamage(total, topX, topY);
+      contactDamage(total, topX, topY, n > 1 ? 'A SWARM (' + foeLabel(topE) + ')' : foeLabel(topE));
     }
   }
 }
@@ -3420,7 +3596,7 @@ function updateEnemies(dt){
         if (e.fuse <= 0){
           triggerExplosion(e.x, e.y, e.dmg*1.6, 105, e, '#ff5f2e');
           burst(e.x, e.y, '#ff5f2e', 34, {minSpd:140,maxSpd:480,minLife:0.25,maxLife:0.6});
-          if (dist2(player.x,player.y,e.x,e.y) < 105*105) damagePlayer(e.dmg*1.35, false, e.x, e.y);
+          if (dist2(player.x,player.y,e.x,e.y) < 105*105) damagePlayer(e.dmg*1.35, false, e.x, e.y, foeLabel(e));
           addShake(7);
           e.dead = true;
           continue;
@@ -3451,7 +3627,7 @@ function updateEnemies(dt){
         e.chargeTimer -= dt;
         if (!e.chargeHit && d < e.radius + player.radius + 10){
           e.chargeHit = true;
-          damagePlayer(e.dmg, false, e.x, e.y);
+          damagePlayer(e.dmg, false, e.x, e.y, foeLabel(e));
         }
         // it overshoots and has to turn around — that recovery window is your opening
         if (e.chargeTimer <= 0){ e.chargeState = 'idle'; e.chargeTimer = rand(1.5,2.4); }
@@ -3477,7 +3653,7 @@ function updateEnemies(dt){
         const lead = rand(0.3, 0.85);
         spawnHazard(player.x + player.mvx*player.speed*lead,
                     player.y + player.mvy*player.speed*lead,
-                    70, e.dmg*0.55, 7, '#5b8cff');
+                    70, e.dmg*0.55, 7, '#5b8cff', 'BLIGHT SPORES');
       }
     }
     else if (e.weaves){
@@ -3555,6 +3731,7 @@ function fireEnemyBullet(e, ang, spd, dmg, radius, color, homing){
   b.life = 0; b.maxLife = 3.4;
   b.homing = !!homing; b.turnRate = homing ? 1.8 : 0;
   b.color = color || '#ff5f2e';
+  b.src = foeLabel(e);
   b.dead = false;
 }
 
@@ -3580,7 +3757,7 @@ function bossPhaseShift(e){
     const off2 = rand(0,TAU);
     for (let i=0;i<5;i++){
       const a = off2 + (TAU/5)*i, rr = rand(120, 240);
-      spawnHazard(e.x + Math.cos(a)*rr, e.y + Math.sin(a)*rr, 78, e.dmg*0.42, 9, '#ff8a2e');
+      spawnHazard(e.x + Math.cos(a)*rr, e.y + Math.sin(a)*rr, 78, e.dmg*0.42, 9, '#ff8a2e', foeLabel(e));
     }
   }
   e.baseSpeed *= 1.16;
@@ -3628,7 +3805,7 @@ function updateBoss(e, dt, dx, dy, d){
       e.chargeTimer -= dt;
       if (!e.chargeHit && d < e.radius + player.radius + 12){
         e.chargeHit = true;
-        damagePlayer(e.dmg*1.5*enrageDmg, false, e.x, e.y);
+        damagePlayer(e.dmg*1.5*enrageDmg, false, e.x, e.y, foeLabel(e));
         addShake(14);
         player.x = clamp(player.x - e.chargeDirX*80, player.radius, WORLD_W-player.radius);
         player.y = clamp(player.y - e.chargeDirY*80, player.radius, WORLD_H-player.radius);
@@ -3683,7 +3860,7 @@ function updateBoss(e, dt, dx, dy, d){
       e.telegraph.timer -= dt;
       if (e.telegraph.timer <= 0){
         if (dist2(player.x,player.y,e.telegraph.x,e.telegraph.y) < e.telegraph.r*e.telegraph.r){
-          damagePlayer(e.dmg*1.6*enrageDmg);
+          damagePlayer(e.dmg*1.6*enrageDmg, false, e.telegraph.x, e.telegraph.y, foeLabel(e));
         }
         burst(e.telegraph.x, e.telegraph.y, '#39ff88', 44, {minSpd:100,maxSpd:380,minLife:0.3,maxLife:0.65});
         addShake(10);
@@ -3712,95 +3889,114 @@ function updateBoss(e, dt, dx, dy, d){
 }
 
 /* ============================= UPDATE: PROJECTILES ============================= */
+/* Bullets are tested where they LAND, not along the line they travelled, so a
+   round that covers more ground in one frame than its target is wide simply
+   teleports through it. That is not a rare corner: Velocity Core and Resonance
+   Tuning both scale projectile speed, and a Reaper stacking them pushes rounds
+   past 3000px/s — 50px a frame at 60fps, against a 9px shard. The build the game
+   most wants you to assemble was the build whose shots silently stopped landing.
+   Stepping the flight in bites no larger than a small body closes it. The cap
+   keeps the cost bounded; nothing legitimately moves fast enough to reach it. */
+const BULLET_STEP = 16, BULLET_MAX_SUBSTEPS = 5;
+
 function updateBullets(dt){
   const items = BULLETS.items;
   for (let bi=0; bi<items.length; bi++){
     const b = items[bi];
     if (!b.active) continue;
-    b.x += b.vx*dt; b.y += b.vy*dt; b.life += dt;
+    b.life += dt;
 
-    if (b.ricochetLeft > 0){
-      if (b.x < b.radius || b.x > WORLD_W-b.radius){
-        b.x = clamp(b.x, b.radius, WORLD_W-b.radius);
-        b.vx *= -1; b.ricochetLeft--;
-        burst(b.x, b.y, '#05f2f2', 4, {minSpd:40,maxSpd:140,minLife:0.15,maxLife:0.3,minSize:1.5,maxSize:2.5});
-      }
-      if (b.y < b.radius || b.y > WORLD_H-b.radius){
-        b.y = clamp(b.y, b.radius, WORLD_H-b.radius);
-        b.vy *= -1; b.ricochetLeft--;
-        burst(b.x, b.y, '#05f2f2', 4, {minSpd:40,maxSpd:140,minLife:0.15,maxLife:0.3,minSize:1.5,maxSize:2.5});
-      }
-    }
-
-    if (player.railgun){
-      b.trailT -= dt;
-      if (b.trailT <= 0){ b.trailT = 0.02; addParticle(b.x, b.y, 0, 0, 0.2, b.radius*0.8, '#f9e838', 0, 0.9); }
-    }
+    const travel = Math.hypot(b.vx, b.vy) * dt;
+    const steps = travel > BULLET_STEP
+      ? Math.min(BULLET_MAX_SUBSTEPS, Math.ceil(travel / BULLET_STEP)) : 1;
+    const sdt = dt / steps;
 
     let killed = false;
-    // margin must cover the LARGEST body we hit-test, not a typical one: a boss is
-    // radius 56, so a query of b.radius+34 could legitimately fail to return the
-    // thing the bullet is standing inside
-    gridQuery(b.x, b.y, b.radius + 62, qA);
-    for (let i=0;i<qA.length;i++){
-      const e = qA[i];
-      if (e.dead) continue;
-      const rr = b.radius + e.radius;
-      if (dist2(b.x, b.y, e.x, e.y) < rr*rr){
-        // a piercing round overlaps its victim for several frames — without this
-        // it re-hits every frame, which quietly made pierce worth ~7x its face value
-        if (b.hits.indexOf(e) >= 0) continue;
-        b.hits.push(e);
-        if (b.hits.length > 16) b.hits.shift();
+    for (let sub = 0; sub < steps && !killed; sub++){
+      b.x += b.vx*sdt; b.y += b.vy*sdt;
 
-        const isCrit = Math.random() < player.critChance;
-        const hitDmg = isCrit ? b.dmg * player.critMult : b.dmg;
-
-        // impact shove — light, mass-scaled, none on bosses. Costs two lines and
-        // is most of why shots feel like they land instead of passing through.
-        if (!e.boss){
-          const kb = (isCrit ? 13 : 8) * (16 / Math.max(9, e.radius));
-          const bs = Math.hypot(b.vx, b.vy) || 1;
-          e.x = clamp(e.x + (b.vx/bs)*kb, e.radius, WORLD_W-e.radius);
-          e.y = clamp(e.y + (b.vy/bs)*kb, e.radius, WORLD_H-e.radius);
+      if (b.ricochetLeft > 0){
+        if (b.x < b.radius || b.x > WORLD_W-b.radius){
+          b.x = clamp(b.x, b.radius, WORLD_W-b.radius);
+          b.vx *= -1; b.ricochetLeft--;
+          burst(b.x, b.y, '#05f2f2', 4, {minSpd:40,maxSpd:140,minLife:0.15,maxLife:0.3,minSize:1.5,maxSize:2.5});
         }
-        damageEnemy(e, hitDmg, isCrit);
-
-        if (player.explosive){
-          triggerExplosion(b.x, b.y, hitDmg*player.explosive.dmgPct, player.explosive.radius, e);
+        if (b.y < b.radius || b.y > WORLD_H-b.radius){
+          b.y = clamp(b.y, b.radius, WORLD_H-b.radius);
+          b.vy *= -1; b.ricochetLeft--;
+          burst(b.x, b.y, '#05f2f2', 4, {minSpd:40,maxSpd:140,minLife:0.15,maxLife:0.3,minSize:1.5,maxSize:2.5});
         }
-        if (player.chain && b.chainLeft > 0 && Math.random() < player.chain.chance){
-          const next = nearestEnemy(e.x, e.y, player.chain.range, e);
-          if (next){
-            spawnArc(e.x, e.y, next.x, next.y, '#c86bff');
-            damageEnemy(next, hitDmg * player.chain.falloff, false);
-            b.chainLeft--;
-          }
-        }
-
-        if (b.pierceLeft > 0){
-          b.pierceLeft--;
-        } else if (b.ricochetLeft > 0){
-          // carom into a fresh target rather than expiring
-          const next = nearestEnemy(b.x, b.y, 340, e);
-          if (next){
-            b.ricochetLeft--;
-            const a = Math.atan2(next.y - b.y, next.x - b.x);
-            const sp = Math.hypot(b.vx, b.vy) || player.projectileSpeed;
-            b.vx = Math.cos(a)*sp; b.vy = Math.sin(a)*sp;
-            b.dmg *= 0.85;
-            b.life = 0;
-            b.hits.length = 0; b.hits.push(e);
-            spawnArc(b.x, b.y, next.x, next.y, SHOT_COLOR);
-            burst(b.x, b.y, SHOT_COLOR, 4, {minSpd:40,maxSpd:150,minLife:0.12,maxLife:0.28,minSize:1.2,maxSize:2.4});
-            break;
-          }
-          killed = true;
-        } else {
-          killed = true;
-        }
-        if (killed) break;
       }
+
+      // margin must cover the LARGEST body we hit-test, not a typical one: a boss is
+      // radius 56, so a query of b.radius+34 could legitimately fail to return the
+      // thing the bullet is standing inside
+      gridQuery(b.x, b.y, b.radius + 62, qA);
+      for (let i=0;i<qA.length;i++){
+        const e = qA[i];
+        if (e.dead) continue;
+        const rr = b.radius + e.radius;
+        if (dist2(b.x, b.y, e.x, e.y) < rr*rr){
+          // a piercing round overlaps its victim for several frames — without this
+          // it re-hits every frame, which quietly made pierce worth ~7x its face value
+          if (b.hits.indexOf(e) >= 0) continue;
+          b.hits.push(e);
+          if (b.hits.length > 16) b.hits.shift();
+
+          const isCrit = Math.random() < player.critChance;
+          const hitDmg = isCrit ? b.dmg * player.critMult : b.dmg;
+
+          // impact shove — light, mass-scaled, none on bosses. Costs two lines and
+          // is most of why shots feel like they land instead of passing through.
+          if (!e.boss){
+            const kb = (isCrit ? 13 : 8) * (16 / Math.max(9, e.radius));
+            const bs = Math.hypot(b.vx, b.vy) || 1;
+            e.x = clamp(e.x + (b.vx/bs)*kb, e.radius, WORLD_W-e.radius);
+            e.y = clamp(e.y + (b.vy/bs)*kb, e.radius, WORLD_H-e.radius);
+          }
+          damageEnemy(e, hitDmg, isCrit);
+
+          if (player.explosive){
+            triggerExplosion(b.x, b.y, hitDmg*player.explosive.dmgPct, player.explosive.radius, e);
+          }
+          if (player.chain && b.chainLeft > 0 && Math.random() < player.chain.chance){
+            const next = nearestEnemy(e.x, e.y, player.chain.range, e);
+            if (next){
+              spawnArc(e.x, e.y, next.x, next.y, '#c86bff');
+              damageEnemy(next, hitDmg * player.chain.falloff, false);
+              b.chainLeft--;
+            }
+          }
+
+          if (b.pierceLeft > 0){
+            b.pierceLeft--;
+          } else if (b.ricochetLeft > 0){
+            // carom into a fresh target rather than expiring
+            const next = nearestEnemy(b.x, b.y, 340, e);
+            if (next){
+              b.ricochetLeft--;
+              const a = Math.atan2(next.y - b.y, next.x - b.x);
+              const sp = Math.hypot(b.vx, b.vy) || player.projectileSpeed;
+              b.vx = Math.cos(a)*sp; b.vy = Math.sin(a)*sp;
+              b.dmg *= 0.85;
+              b.life = 0;
+              b.hits.length = 0; b.hits.push(e);
+              spawnArc(b.x, b.y, next.x, next.y, SHOT_COLOR);
+              burst(b.x, b.y, SHOT_COLOR, 4, {minSpd:40,maxSpd:150,minLife:0.12,maxLife:0.28,minSize:1.2,maxSize:2.4});
+              break;
+            }
+            killed = true;
+          } else {
+            killed = true;
+          }
+          if (killed) break;
+        }
+      }
+    }   /* end substep */
+
+    if (player.railgun && !killed){
+      b.trailT -= dt;
+      if (b.trailT <= 0){ b.trailT = 0.02; addParticle(b.x, b.y, 0, 0, 0.2, b.radius*0.8, '#f9e838', 0, 0.9); }
     }
 
     if (killed || b.life >= b.maxLife ||
@@ -3850,7 +4046,7 @@ function updateEnemyBullets(dt){
 
     const rr = b.radius + player.radius;
     if (dist2(b.x,b.y,player.x,player.y) < rr*rr){
-      damagePlayer(b.dmg, false, b.x - b.vx*0.25, b.y - b.vy*0.25);
+      damagePlayer(b.dmg, false, b.x - b.vx*0.25, b.y - b.vy*0.25, b.src);
       burst(b.x, b.y, b.color, 8, {minSpd:60,maxSpd:200,minLife:0.15,maxLife:0.35});
       b.active = false;
       continue;
@@ -3975,6 +4171,16 @@ function updateFX(dt){
 let lastT = performance.now();
 let frameSum = 0, frameN = 0, qualityCooldown = 0, lowHpT = 0;
 
+/* The CRT scanline layer is a full-screen `mix-blend-mode: multiply` div sitting
+   over an element that repaints every frame, so the compositor re-blends the whole
+   viewport every frame for it. It is free-looking, not free — and it is pure
+   decoration, which makes it the first thing that should go when a device is
+   already missing frames and the last thing to come back. */
+const scanEl = document.getElementById('scan');
+function setScanlines(on){
+  if (scanEl) scanEl.style.display = on ? '' : 'none';
+}
+
 function tuneQuality(dt){
   if (qualityCooldown > 0){ qualityCooldown -= dt; return; }
   frameSum += dt; frameN++;
@@ -3983,9 +4189,17 @@ function tuneQuality(dt){
   frameSum = 0; frameN = 0;
   if (avg > 0.0225){                       // below ~44fps: shed work
     if (fxScale > 0.4) { fxScale = Math.max(0.4, fxScale - 0.25); qualityCooldown = 1.5; }
-    else if (qualityScale > 0.6){ qualityScale = Math.max(0.6, qualityScale - 0.14); resize(); qualityCooldown = 2.5; }
+    else if (qualityScale > 0.6){
+      qualityScale = Math.max(0.6, qualityScale - 0.14); resize();
+      setScanlines(false);
+      qualityCooldown = 2.5;
+    }
   } else if (avg < 0.0142){                // above ~70fps: take some back
-    if (qualityScale < 1){ qualityScale = Math.min(1, qualityScale + 0.14); resize(); qualityCooldown = 3; }
+    if (qualityScale < 1){
+      qualityScale = Math.min(1, qualityScale + 0.14); resize();
+      if (qualityScale >= 1) setScanlines(true);
+      qualityCooldown = 3;
+    }
     else if (fxScale < 1){ fxScale = Math.min(1, fxScale + 0.25); qualityCooldown = 2; }
   }
 }
@@ -4005,15 +4219,16 @@ function loop(now){
 
   // impact frames: brief slow-motion on crits, big kills and taking a hit
   let gdt = dt;
+  if (hitStopCd > 0) hitStopCd -= dt;
   if (hitStop > 0){
     hitStop = Math.max(0, hitStop - dt);
     gdt = dt * 0.14;
   }
 
   if (state === 'playing'){
-    dmgTextBudget = 3;
+    dmgTextBudget = 5;
     elapsed += gdt;
-    score += gdt * 40;
+    score += gdt * 40 * DIFF.score;
     if (freezeT > 0) freezeT -= gdt;
 
     gridClear();
@@ -4208,6 +4423,47 @@ function drawEdgeIndicator(wx, wy, color, label){
   }
 }
 
+/* The minimap's backdrop and its 58 pylon marks are identical every single frame
+   for the whole run, and they were being re-issued as 60 separate canvas ops each
+   time alongside ~200 more for the live entities. The static half is now baked
+   once into an offscreen canvas and blitted; the live half draws each colour as a
+   single batched path instead of one fillRect per dot. */
+let miniStatic = null, miniStaticSize = 0;
+function buildMiniStatic(size){
+  const px = Math.ceil(size);
+  const c = document.createElement('canvas');
+  c.width = c.height = px;
+  const g = c.getContext('2d');
+  const scale = px / WORLD_W;
+  g.fillStyle = 'rgba(6,8,20,0.66)';
+  g.fillRect(0, 0, px, px);
+  g.fillStyle = 'rgba(90,110,150,0.5)';
+  g.beginPath();
+  for (let i=0;i<pylons.length;i++){
+    const p = pylons[i];
+    g.rect(p.x*scale - 1, p.y*scale - 1, 2, 2);
+  }
+  g.fill();
+  g.strokeStyle = 'rgba(5,242,242,0.4)';
+  g.lineWidth = 1;
+  g.strokeRect(0.5, 0.5, px-1, px-1);
+  miniStatic = c;
+  miniStaticSize = size;
+}
+
+function batchDots(list, mx, my, scale, half, color, limit, skipBoss){
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  let n = 0;
+  for (let i=0;i<list.length;i++){
+    const o = list[i];
+    if (o.dead || (skipBoss && o.boss)) continue;
+    ctx.rect(mx + o.x*scale - half, my + o.y*scale - half, half*2, half*2);
+    if (limit && ++n >= limit) break;
+  }
+  ctx.fill();
+}
+
 function drawMinimap(){
   const mapSize = Math.min(126, Math.max(84, W*0.16)), pad = 12;
   const mx = W - mapSize - pad;
@@ -4215,39 +4471,15 @@ function drawMinimap(){
   const my = H - mapSize - pad - (usingTouch ? 86 : 0);
   const scale = mapSize / WORLD_W;
   ctx.save();
-  ctx.fillStyle = 'rgba(6,8,20,0.66)';
-  ctx.fillRect(mx, my, mapSize, mapSize);
-  ctx.strokeStyle = 'rgba(5,242,242,0.4)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(mx, my, mapSize, mapSize);
+  if (!miniStatic || miniStaticSize !== mapSize) buildMiniStatic(mapSize);
+  ctx.drawImage(miniStatic, mx, my, mapSize, mapSize);
 
-  ctx.fillStyle = 'rgba(90,110,150,0.5)';
-  for (let i=0;i<pylons.length;i++){
-    const p = pylons[i];
-    ctx.fillRect(mx + p.x*scale - 1, my + p.y*scale - 1, 2, 2);
-  }
-  ctx.fillStyle = '#f9e838';
-  for (let i=0;i<crates.length;i++){
-    const c = crates[i];
-    ctx.fillRect(mx + c.x*scale - 1.5, my + c.y*scale - 1.5, 3, 3);
-  }
-  ctx.fillStyle = '#39ff88';
-  for (let i=0;i<pickups.length;i++){
-    const p = pickups[i];
-    ctx.fillRect(mx + p.x*scale - 1.5, my + p.y*scale - 1.5, 3, 3);
-  }
-  ctx.fillStyle = 'rgba(255,120,180,0.5)';
-  let dots = 0;
-  for (let i=0;i<enemies.length;i++){
-    const e = enemies[i];
-    if (e.dead || e.boss) continue;
-    ctx.fillRect(mx + e.x*scale - 1, my + e.y*scale - 1, 2, 2);
-    if (++dots >= 160) break;
-  }
-  ctx.fillStyle = '#ff2ea6';
-  for (let i=0;i<enemies.length;i++){
-    const e = enemies[i];
-    if (e.boss && !e.dead) ctx.fillRect(mx + e.x*scale - 2.5, my + e.y*scale - 2.5, 5, 5);
+  batchDots(crates,  mx, my, scale, 1.5, '#f9e838');
+  batchDots(pickups, mx, my, scale, 1.5, '#39ff88');
+  batchDots(enemies, mx, my, scale, 1,   'rgba(255,120,180,0.5)', 160, true);
+  if (bossRef && !bossRef.dead){
+    ctx.fillStyle = '#ff2ea6';
+    ctx.fillRect(mx + bossRef.x*scale - 2.5, my + bossRef.y*scale - 2.5, 5, 5);
   }
   if (node){
     const pulse = 0.5 + 0.5*Math.sin(elapsed*4);
@@ -4396,20 +4628,20 @@ function render(){
     }
   }
 
-  /* ---- boss telegraphs (under enemies so the boss reads on top) ---- */
-  for (let i=0;i<enemies.length;i++){
-    const e = enemies[i];
-    if (e.boss && e.bossType === 'voidreaper' && e.telegraph){
-      const t = 1 - (e.telegraph.timer / e.telegraph.dur);
-      ctx.save();
-      ctx.globalAlpha = 0.12 + 0.34*t;
-      ctx.fillStyle = '#39ff88';
-      ctx.beginPath(); ctx.arc(e.telegraph.x, e.telegraph.y, e.telegraph.r, 0, TAU); ctx.fill();
-      ctx.globalAlpha = 0.75;
-      ctx.strokeStyle = '#39ff88'; ctx.lineWidth = 2.5;
-      ctx.stroke();
-      ctx.restore();
-    }
+  /* ---- boss telegraphs (under enemies so the boss reads on top) ----
+     Only one boss is ever alive, so walking all 200 enemies to find its telegraph
+     was 200 checks a frame to answer a question `bossRef` already knows. */
+  if (bossRef && !bossRef.dead && bossRef.telegraph){
+    const tg = bossRef.telegraph;
+    const t = 1 - (tg.timer / tg.dur);
+    ctx.save();
+    ctx.globalAlpha = 0.12 + 0.34*t;
+    ctx.fillStyle = '#39ff88';
+    ctx.beginPath(); ctx.arc(tg.x, tg.y, tg.r, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 0.75;
+    ctx.strokeStyle = '#39ff88'; ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.restore();
   }
 
   /* ---- enemies ---- */
@@ -4888,6 +5120,7 @@ function unlockClass(id){
 }
 
 function resetGame(){
+  DIFF = diffById(selectedDifficulty);
   const cls = classById(selectedClass);
   player = newPlayer(cls);
   enemies.length = 0; crates.length = 0; pickups.length = 0; hazards.length = 0;
@@ -4906,6 +5139,7 @@ function resetGame(){
   nodesHeld = 0; node = null; nodeTimer = 26;
   overloadCount = 0; damageDealt = 0;
   spawnTimer = 0.8; pendingLevelUps = 0; crateSpawnTimer = 14;
+  hitStopCd = 0; deathCause = '';
   newUnlocks = [];
   for (const k in hudPrev) hudPrev[k] = (typeof hudPrev[k] === 'number') ? -1 : '';
 
@@ -4938,6 +5172,7 @@ function toMenu(){
   hud.classList.add('hidden');
   gameoverScreen.classList.add('hidden');
   startScreen.classList.remove('hidden');
+  buildDiffRow();
   buildClassGrid();
   refreshBestLine();
   Audio_.stopMusic();
@@ -5030,6 +5265,7 @@ function renderCards(picks){
       '<div class="icon" style="color:' + u.color + '">' + u.icon + '</div>' +
       '<div class="cname">' + name + '</div>' +
       '<div class="cdesc">' + desc + '</div>' +
+      previewOffer(o) +
       (pips ? '<div class="cpips" style="color:' + u.color + '">' + pips + '</div>' : '') +
       (u.evo ? '' : '<div class="ckey">LV ' + Math.min(u.max, lvl + o.stacks) + (u.max < 999 ? ' / ' + u.max : '') + '</div>') +
       '<div class="ckey">[ ' + (i+1) + ' ]</div>';
@@ -5206,11 +5442,16 @@ function gameOver(){
   if (bossKills >= 3) unlockClass('reaper');
   if (player.level >= 12) unlockClass('warden');
 
-  const bestT = Store.num(BEST_TIME_KEY, 0);
-  const bestS = Store.num(BEST_SCORE_KEY, 0);
+  const bestT = Store.num(bestKey(BEST_TIME_KEY), 0);
+  const bestS = Store.num(bestKey(BEST_SCORE_KEY), 0);
   const newT = elapsed > bestT, newS = score > bestS;
-  if (newT) Store.set(BEST_TIME_KEY, elapsed);
-  if (newS) Store.set(BEST_SCORE_KEY, Math.round(score));
+  if (newT) Store.set(bestKey(BEST_TIME_KEY), elapsed);
+  if (newS) Store.set(bestKey(BEST_SCORE_KEY), Math.round(score));
+
+  const gd = document.getElementById('goDiff');
+  gd.textContent = DIFF.name + ' · ' + classById(player.classId).name;
+  gd.style.color = DIFF.color;
+  document.getElementById('killedBy').innerHTML = 'KILLED BY <b>' + (deathCause || 'THE GRID') + '</b>';
 
   document.getElementById('finalScore').textContent  = fmtNum(score);
   document.getElementById('finalTime').textContent   = fmtTime(elapsed);
@@ -5269,7 +5510,34 @@ function buildClassGrid(){
 
 function refreshBestLine(){
   document.getElementById('bestScoreLine').textContent =
-    'BEST — TIME ' + fmtTime(Store.num(BEST_TIME_KEY, 0)) + '  ·  SCORE ' + fmtNum(Store.num(BEST_SCORE_KEY, 0));
+    DIFF.name + ' BEST — TIME ' + fmtTime(Store.num(bestKey(BEST_TIME_KEY), 0))
+    + '  ·  SCORE ' + fmtNum(Store.num(bestKey(BEST_SCORE_KEY), 0));
+}
+
+function buildDiffRow(){
+  const row = document.getElementById('diffRow');
+  row.innerHTML = '';
+  DIFFICULTIES.forEach(d => {
+    const el = document.createElement('div');
+    el.className = 'diffBtn' + (d.id === DIFF.id ? ' sel' : '');
+    el.tabIndex = 0;
+    el.style.color = d.color;
+    el.style.borderColor = d.id === DIFF.id ? d.color : 'rgba(255,255,255,0.15)';
+    el.innerHTML = '<div class="dName">' + d.name + '</div>'
+                 + '<div class="dMult">' + Math.round(d.score*100) + '% SCORE</div>';
+    const choose = () => {
+      selectedDifficulty = d.id;
+      DIFF = d;
+      Store.set('ns_diff', d.id);
+      Audio_.click();
+      buildDiffRow();
+      refreshBestLine();
+    };
+    el.addEventListener('click', choose);
+    el.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); choose(); } });
+    row.appendChild(el);
+  });
+  document.getElementById('diffBlurb').textContent = DIFF.blurb;
 }
 
 /* ---------- wiring ---------- */
@@ -5277,6 +5545,7 @@ document.getElementById('startBtn').addEventListener('click', startGame);
 document.getElementById('restartBtn').addEventListener('click', startGame);
 document.getElementById('menuBtn').addEventListener('click', toMenu);
 document.getElementById('restartFromPauseBtn').addEventListener('click', toMenu);
+document.getElementById('retryFromPauseBtn').addEventListener('click', startGame);
 document.getElementById('resumeBtn').addEventListener('click', togglePause);
 document.getElementById('rerollBtn').addEventListener('click', doReroll);
 document.getElementById('banishBtn').addEventListener('click', armBanish);
@@ -5302,6 +5571,7 @@ window.addEventListener('keydown', e => {
 if ('ontouchstart' in window) armTouchUI();
 
 refreshMuteBtn();
+buildDiffRow();
 buildClassGrid();
 refreshBestLine();
 resize();
