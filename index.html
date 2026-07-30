@@ -1555,12 +1555,15 @@ let deathCause = '';
    Score is multiplied to match, so a NIGHTMARE leaderboard entry is worth what it
    cost, and bests are tracked per tier so the tiers never overwrite each other. */
 const DIFFICULTIES = [
-  { id:'recruit',   name:'RECRUIT',   color:'#39ff88', blurb:'Softer hulls, thinner waves. Room to learn the systems.',
-    hp:0.72, dmg:0.72, spawn:0.82, score:0.75 },
+  /* `spd` exists because closing speed is now one of the main things separating a
+     survivable minute from a lethal one — a tier that softens hulls and damage but
+     leaves every enemy just as able to run you down is not actually a gentler tier. */
+  { id:'recruit',   name:'RECRUIT',   color:'#39ff88', blurb:'Softer hulls, slower pursuit, thinner waves. Room to learn the systems.',
+    hp:0.72, dmg:0.72, spawn:0.82, spd:0.90, score:0.75 },
   { id:'veteran',   name:'VETERAN',   color:'#05f2f2', blurb:'The fight as tuned. Honest odds.',
-    hp:1.00, dmg:1.00, spawn:1.00, score:1.00 },
-  { id:'nightmare', name:'NIGHTMARE', color:'#ff2ea6', blurb:'Harder hulls, denser waves, elites arrive early.',
-    hp:1.38, dmg:1.22, spawn:1.24, score:1.50 },
+    hp:1.00, dmg:1.00, spawn:1.00, spd:1.00, score:1.00 },
+  { id:'nightmare', name:'NIGHTMARE', color:'#ff2ea6', blurb:'Harder hulls, faster pursuit, denser waves, elites arrive early.',
+    hp:1.38, dmg:1.22, spawn:1.24, spd:1.08, score:1.50 },
 ];
 const diffById = id => DIFFICULTIES.find(d => d.id === id) || DIFFICULTIES[1];
 let selectedDifficulty = Store.get('ns_diff', 'veteran');
@@ -2013,7 +2016,16 @@ function volleyMult(n){ return n <= 1 ? 1 : 1 / (1 + 0.09*(n-1)); }
 // sustain and Overload both used to scale with KILL RATE, which is the one number
 // in this game that runs away without limit. Both now draw from a refilling
 // budget: burst behaviour is untouched, the sustained ceiling is real.
-const LIFESTEAL_CAP = 0.035;   // fraction of max HP per second
+/* Sustain ceilings. These are percentages of MAX HP, and max hull is itself
+   inflatable several times over by Vital Core and Reinforced Chassis — so every
+   point of hull bought healing twice. Meanwhile incoming damage is rate-limited by
+   i-frames to a couple of events a second no matter how many enemies are on the
+   field, which put a hard ceiling on damage but none on repair. Regen and lifesteal
+   together used to reach 7% of max hull per second: a full heal every fourteen
+   seconds, which nothing on the field could out-damage from about four minutes in.
+   Together they now top out at 4.7%/s — still the strongest defensive investment in
+   the game, no longer an off switch for the death state. */
+const LIFESTEAL_CAP = 0.022;   // fraction of max HP per second
 const ULT_DMG_CAP   = 4.5;     // Overload charge per second obtainable from damage
 
 /* Total bonus from `s` more stacks of an uncapped line you already own `owned` of,
@@ -2069,8 +2081,8 @@ const upgradePool = [
   // second, which two EPIC rolls could hand you before the four-minute mark and
   // which simply outhealed the entire mid game.
   { id:'regen', icon:'♻️', color:'#39ff88', max:5, weight:7,
-    name:()=>'Nanite Regen', desc:(p,s)=>'Regenerate '+(0.7*s).toFixed(1)+'% max HP per second',
-    apply:(p,s)=>{ p.regen += 0.007*s; } },
+    name:()=>'Nanite Regen', desc:(p,s)=>'Regenerate '+(0.5*s).toFixed(1)+'% max HP per second',
+    apply:(p,s)=>{ p.regen += 0.005*s; } },
 
   /* Per-KILL healing has no ceiling in a game whose kill rate ends up above ten
      a second — maxed, this was healing ~17% of your max HP every second late on,
@@ -2079,7 +2091,7 @@ const upgradePool = [
      per-second budget is what stops it becoming immortality. */
   { id:'lifesteal', icon:'🩸', color:'#ff2ea6', max:5, weight:7,
     name:()=>'Vampiric Rounds',
-    desc:(p,s)=>'Heal '+(0.35*s).toFixed(2)+'% max HP per kill (up to '+Math.round(LIFESTEAL_CAP*100)+'%/s)',
+    desc:(p,s)=>'Heal '+(0.35*s).toFixed(2)+'% max HP per kill (up to '+(LIFESTEAL_CAP*100).toFixed(1)+'%/s)',
     apply:(p,s)=>{ p.lifesteal += 0.0035*s; } },
 
   // Pickup range alone was a non-choice: gems already fly at you and the card
@@ -2617,9 +2629,20 @@ const ELITE_MODS = [
    curve's t^1.9 term ran away hard enough that long runs ended at a wall the
    build could never have out-scaled, rather than on a mistake you could name. */
 const hpScale  = t => (1 + t*0.016 + Math.pow(t/86, 1.85)) * DIFF.hp;
-const dmgScale = t => (1 + t*0.005  + Math.pow(t/200, 1.35)) * DIFF.dmg;
-// late-game mobs get fast enough to actually catch a boots-stacked player
-const spdScale = t => 1 + Math.min(0.36, t*0.00055);
+/* Damage has to climb faster than it used to. The player's effective hull grows
+   from three directions at once (max HP, armour, and Bulwark compounding on top of
+   both), so a curve this shallow meant that from about the four-minute mark
+   nothing on the field could meaningfully hurt you. The first two minutes are
+   near-identical on purpose — the opening was well paced — and the gap widens from
+   there: roughly +10% at 2:00, +25% at 4:00, +35% by 12:00. */
+const dmgScale = t => (1 + t*0.0058 + Math.pow(t/170, 1.5)) * DIFF.dmg;
+/* Speed was capped at +36%, and the comment here used to claim that was enough to
+   "catch a boots-stacked player". It was not, and the arithmetic was never close:
+   Swift Boots alone is +77%, before Overdrive and Frenzy, so a maxed pilot ran at
+   ~414px/s against a fastest-enemy speed of 261. Nothing could ever reach you, and
+   a threat you can simply walk away from is not a threat. The ceiling is now high
+   enough that outrunning the field is a thing you do in bursts, not a resting state. */
+const spdScale = t => (1 + Math.min(0.85, t*0.0011)) * (DIFF.spd || 1);
 
 /* Strict colour discipline so a death always reads as your mistake:
      cyan-white = yours · orange = enemy fire · red = it tracks or detonates
@@ -2995,7 +3018,12 @@ function updateSpawning(dt){
     // gentler ramp than the old /85: the field used to saturate to the body cap
     // inside four minutes, after which the director had no headroom left to push
     // OR back off with, and every late run flattened into the same wall of grunts
-    let count = bossFight ? 1 : Math.max(1, Math.round(clamp(1 + Math.floor(spawnClock/110), 1, 5) * pr));
+    /* The per-tick body count used to stop growing at five, reached just after four
+       minutes — so from that point the field could not get any denser no matter how
+       long you survived, and a build that out-killed the spawn rate simply emptied
+       the screen forever. The ceiling now keeps climbing, which is what stops
+       "clears faster than they arrive" from being a permanent state. */
+    let count = bossFight ? 1 : Math.max(1, Math.round(clamp(1 + Math.floor(spawnClock/100), 1, 7) * pr));
     /* Escalate QUALITY instead of quantity at both ends of the population range.
        `crowded` was the only case handled, but the opposite one matters more: a
        finished build deletes spawns on arrival, so the field sits near empty and
