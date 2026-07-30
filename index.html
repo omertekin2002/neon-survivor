@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="NEON SURGE — an open-world neon survival shooter. Dash, loot, evolve your build, and take down roaming bosses.">
 <meta name="theme-color" content="#050510">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2238%22 fill=%22%2305f2f2%22/></svg>">
@@ -30,11 +30,11 @@
     background:var(--bg0);
     font-family:'Orbitron','Segoe UI',Arial,sans-serif;
     color:#eafcff;
-    touch-action:none;
+    touch-action:manipulation;
     user-select:none;
   }
   #wrap{ position:fixed; inset:0; }
-  canvas{ position:absolute; inset:0; display:block; }
+  canvas{ position:absolute; inset:0; display:block; touch-action:none; }
 
   /* subtle CRT scanlines — pure CSS, costs nothing per frame */
   #scan{
@@ -46,11 +46,18 @@
   .overlay{
     position:absolute; inset:0;
     display:flex; align-items:center; justify-content:center;
+    justify-content:flex-start;
+    justify-content:safe center;
     flex-direction:column;
     text-align:center;
     background:radial-gradient(ellipse at center, rgba(10,10,30,0.55) 0%, rgba(3,3,10,0.93) 75%);
-    padding:16px;
+    padding-top:max(18px, env(safe-area-inset-top));
+    padding-right:max(16px, env(safe-area-inset-right));
+    padding-bottom:max(18px, env(safe-area-inset-bottom));
+    padding-left:max(16px, env(safe-area-inset-left));
     overflow-y:auto;
+    overscroll-behavior:contain;
+    touch-action:pan-y pinch-zoom;
   }
   .hidden{ display:none !important; }
 
@@ -89,6 +96,10 @@
     width:100%;
     backdrop-filter:blur(6px);
   }
+  /* Keep the complete pre-run decision on one desktop screen. Five compact pilot
+     cards fit in one row here; phone widths still collapse to the two-column
+     layout below and remain vertically scrollable. */
+  #startScreen .panel{ max-width:760px; }
   .btn{
     font-family:inherit;
     font-weight:700;
@@ -105,6 +116,11 @@
     transition:transform .08s ease, box-shadow .08s ease, filter .1s ease;
   }
   .btn:active{ transform:translateY(3px); box-shadow:0 0 12px rgba(5,242,242,0.5), 0 1px 0 #027878; }
+  .btn:focus-visible, .iconBtn:focus-visible, .classCard:focus-visible,
+  .diffBtn:focus-visible, .card:focus-visible{
+    outline:2px solid #fff;
+    outline-offset:3px;
+  }
   .btn:disabled{ filter:grayscale(1) brightness(0.6); cursor:default; }
   .btn.secondary{
     background:linear-gradient(180deg,#3a3f55,#22263a);
@@ -112,12 +128,30 @@
     box-shadow:0 0 12px rgba(120,140,255,0.25), 0 4px 0 #14172a;
   }
   .btn.small{ font-size:12px; padding:9px 16px; letter-spacing:1px; margin-top:0; }
+  .btn.danger-confirm{
+    color:#fff;
+    background:linear-gradient(180deg,#ff4268,#9d1635);
+    box-shadow:0 0 18px rgba(255,46,106,0.45), 0 4px 0 #5f0c22;
+  }
   .controls{
     display:flex; justify-content:center; gap:22px; margin-top:14px;
     font-size:11.5px; color:#9fb3c8; letter-spacing:1px; flex-wrap:wrap;
   }
   .controls b{ color:var(--yellow); text-shadow:0 0 6px rgba(249,232,56,0.6); }
+  .touchControls{
+    display:none; justify-content:center; gap:8px; flex-wrap:wrap;
+    margin-top:12px; color:#9fb3c8; font:600 12px/1.45 'Segoe UI',Arial,sans-serif;
+  }
+  .touchControls b{ color:var(--yellow); }
+  body.touch-mode .desktopControls{ display:none !important; }
+  body.touch-mode .touchControls{ display:flex; }
   .bestscore{ margin-top:8px; color:var(--yellow); font-size:12.5px; letter-spacing:2px; text-shadow:0 0 8px rgba(249,232,56,0.5); }
+
+  .introCopy, .classCard .cPerk, .classCard .cLock, .diffBlurb,
+  .card .cdesc, #luHint, .statRow{
+    font-family:'Segoe UI',Arial,sans-serif;
+    letter-spacing:0.2px;
+  }
 
   /* ---------- difficulty select ---------- */
   .diffRow{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
@@ -223,6 +257,7 @@
     color:#dfe6ff; font-size:13px;
     display:flex; align-items:center; justify-content:center;
     cursor:pointer;
+    padding:0; font-family:inherit;
     transition:border-color .15s ease, box-shadow .15s ease;
   }
   .iconBtn:hover{ border-color:rgba(5,242,242,0.6); box-shadow:0 0 10px rgba(5,242,242,0.3); }
@@ -477,6 +512,11 @@
 
   #rerollRow{ display:flex; gap:10px; justify-content:center; margin-top:16px; pointer-events:auto; flex-wrap:wrap; }
   #luHint{ font-size:9.5px; color:#5b7185; letter-spacing:1.5px; margin-top:8px; }
+  #levelupScreen.banish .card{
+    border-color:#ff5f7a;
+    box-shadow:0 0 24px rgba(255,46,106,.35);
+  }
+  #levelupScreen.banish #luHint{ color:#ff8aa8; font-weight:700; }
 
   /* ---------- game over ---------- */
   #killedBy{ font-size:10px; letter-spacing:2.5px; color:#9fb3c8; margin-bottom:10px; }
@@ -506,7 +546,13 @@
   }
 
   #flash{ position:absolute; inset:0; background:#ff2ea6; opacity:0; pointer-events:none; mix-blend-mode:screen; }
-  #vignette{ position:absolute; inset:0; pointer-events:none; box-shadow: inset 0 0 160px rgba(255,20,60,0); transition:box-shadow .3s ease; }
+  #vignette{
+    position:absolute; inset:0; pointer-events:none; opacity:0;
+    background:radial-gradient(ellipse at center, transparent 45%, rgba(255,20,60,0.68) 145%);
+    transition:opacity .25s ease;
+  }
+  #vignette.on{ animation:dangerPulse .72s ease-in-out infinite; }
+  @keyframes dangerPulse{ 0%,100%{ opacity:.38; } 50%{ opacity:.78; } }
 
   footer.hint{
     position:absolute; bottom:8px; left:0; right:0; text-align:center;
@@ -514,17 +560,8 @@
   }
 
   @media (max-width:700px){
-    .controls{ display:none; }
     #statsRight{ font-size:11px; }
-    .card{ width:calc(33.33% - 8px); min-width:104px; padding:12px 7px 9px; }
-    .card .icon{ font-size:25px; }
-    .card .cdesc{ font-size:9.5px; min-height:52px; }
-    /* a third of a phone screen is ~115px, which "DPS 273 → 511 +87%" cannot fit
-       on one line — nowrap clipped the number the card exists to show */
-    .card .cprev{ white-space:normal; font-size:8.5px; line-height:1.35; }
-    .card .csyn{ font-size:8px; }
     .classCard{ width:calc(50% - 6px); max-width:150px; }
-    #abilityWrap{ display:none; }
     footer.hint{ display:none; }
     #bossBarWrap{ top:78px; width:70vw; }
     /* the boss plate is centred and 70vw wide, so right-aligned chips at the same
@@ -534,7 +571,12 @@
   /* phone-width topbar: at 375-400px the three stat blocks used to overflow and
      push the mute button clean off the screen */
   @media (max-width:480px){
-    #topbar{ padding:8px 8px; gap:6px; }
+    #topbar{
+      padding-top:max(8px, env(safe-area-inset-top));
+      padding-right:max(8px, env(safe-area-inset-right));
+      padding-left:max(8px, env(safe-area-inset-left));
+      gap:6px;
+    }
     #healthWrap{ min-width:92px; }
     #hudBtns{ gap:4px; }
     .iconBtn{ width:28px; height:28px; font-size:11px; border-radius:7px; }
@@ -546,20 +588,54 @@
     #buffRow{ top:124px; right:8px; }
     .buffChip{ font-size:9px; padding:2px 7px; }
     #comboText{ font-size:11px; bottom:104px; }
-    #dashBtn{ width:66px; height:66px; right:14px; bottom:14px; font-size:22px; }
-    #ultBtn{ width:54px; height:54px; right:20px; bottom:92px; font-size:18px; }
+    #dashBtn{
+      width:66px; height:66px; right:max(14px, env(safe-area-inset-right));
+      bottom:max(14px, env(safe-area-inset-bottom)); font-size:22px;
+    }
+    #ultBtn{
+      width:54px; height:54px; right:max(20px, env(safe-area-inset-right));
+      bottom:calc(max(14px, env(safe-area-inset-bottom)) + 78px); font-size:18px;
+    }
+
+    /* Upgrade choices become readable rows in portrait instead of three 104px
+       columns. The information density is unchanged; the eye no longer has to
+       decode a paragraph one word per line. */
+    .cards{ flex-direction:column; width:min(100%,430px); gap:9px; margin-top:10px; }
+    .card{
+      width:100%; min-width:0; padding:11px 12px 9px 64px;
+      display:grid; grid-template-columns:minmax(0,1fr) auto;
+      grid-auto-rows:auto; column-gap:9px; text-align:left;
+    }
+    .card:hover, .card:focus{ transform:translateY(-2px); }
+    .card .icon{
+      position:absolute; left:13px; top:50%; transform:translateY(-50%);
+      width:38px; margin:0; text-align:center; font-size:27px;
+    }
+    .card .cname{ grid-column:1; margin:0 0 3px; font-size:12px; }
+    .card .cdesc{ grid-column:1 / 3; min-height:0; font-size:11.5px; line-height:1.35; }
+    .card .cprev{ grid-column:1; white-space:normal; font-size:9px; line-height:1.3; margin-top:5px; }
+    .card .csyn{ grid-column:1 / 3; font-size:9px; margin-top:5px; padding-top:4px; }
+    .card .cpips{ grid-column:2; grid-row:1; margin:1px 0 0; justify-content:flex-end; }
+    .card .ckey{ grid-column:2; grid-row:3; align-self:end; margin:5px 0 0; text-align:right; }
+    .card .ckeyNum{ position:absolute; right:8px; bottom:7px; margin:0; padding:0; }
+    .card .crar{ left:14px; transform:none; }
+    #rerollRow{ margin-top:11px; gap:7px; }
+    #luHint{ font-size:11px; line-height:1.35; letter-spacing:.2px; }
   }
+  body.touch-mode #abilityWrap{ display:none; }
+  body.touch-mode #fullscreenBtn{ display:none; }
   @media (prefers-reduced-motion: reduce){
     .title{ animation:none; }
     .card.rar-evo, .card .cpips i.gain{ animation:none; }
     .card, .btn, .iconBtn, .classCard{ transition:none; }
+    #vignette.on{ animation:none; opacity:.55; }
     #scan{ display:none; }
   }
 </style>
 </head>
 <body>
 <div id="wrap">
-  <canvas id="game"></canvas>
+  <canvas id="game" role="img" tabindex="-1" aria-label="Neon Surge survival arena"></canvas>
   <div id="scan"></div>
   <div id="flash"></div>
   <div id="vignette"></div>
@@ -584,9 +660,10 @@
         <div class="srSub">KILLS <b id="killVal">0</b> &middot; THREAT <b id="waveVal">1</b></div>
       </div>
       <div id="hudBtns">
-        <div class="iconBtn" id="statsBtn" title="Loadout (I)">▤</div>
-        <div class="iconBtn" id="pauseBtn" title="Pause (P)">❚❚</div>
-        <div class="iconBtn" id="muteBtn" title="Mute (M)">🔊</div>
+        <button class="iconBtn" id="statsBtn" title="Loadout (I)" aria-label="Open pilot loadout">▤</button>
+        <button class="iconBtn" id="pauseBtn" title="Pause (P)" aria-label="Pause game">❚❚</button>
+        <button class="iconBtn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">⛶</button>
+        <button class="iconBtn" id="muteBtn" title="Mute (M)" aria-label="Toggle sound">🔊</button>
       </div>
     </div>
 
@@ -598,7 +675,7 @@
 
     <div id="comboText">COMBO x1</div>
     <div id="buffRow"></div>
-    <div id="toast"></div>
+    <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <div id="abilityWrap">
       <div id="dashPips"></div>
@@ -613,16 +690,14 @@
   <div id="joystick"><div id="joystickKnob"></div></div>
 
   <!-- START SCREEN -->
-  <div id="startScreen" class="overlay">
+  <div id="startScreen" class="overlay" aria-label="Start a Neon Surge run">
     <div class="title">NEON SURGE</div>
     <div class="subtitle">◈ OPEN-WORLD SURVIVAL ◈</div>
     <div class="panel">
-      <div style="font-size:12px;color:#cfe3f2;letter-spacing:1px;line-height:1.6;">
-        Your cannon fires itself and shoots where you steer.
-        <b style="color:var(--cyan)">You</b> handle the dodging — dash <i>through</i> enemy fire
-        to trigger <b style="color:var(--yellow)">SURGE</b>, and bank damage into
-        <b style="color:var(--purple)">OVERLOAD</b> for a screen-clearing detonation.
-        Crack loot caches, hold Overcharge Nodes, and evolve a build before the bosses catch up.
+      <div class="introCopy" style="font-size:13px;color:#cfe3f2;line-height:1.55;">
+        Your cannon auto-fires at a highlighted threat. <b style="color:var(--cyan)">MOVE</b> to steer its priority,
+        <b style="color:var(--yellow)">DASH</b> through attacks to trigger SURGE, and turn damage dealt into a
+        screen-clearing <b style="color:var(--purple)">OVERLOAD</b>. Hunt caches, capture Nodes, and evolve a focused build.
       </div>
       <div style="font-size:11px;letter-spacing:1px;line-height:1.55;color:#9fb3c8;margin-top:10px;
                   border-top:1px solid rgba(249,232,56,0.2);padding-top:9px;">
@@ -635,20 +710,22 @@
       <div class="diffBlurb" id="diffBlurb"></div>
       <div class="subtitle" style="margin:16px 0 8px;font-size:11px;">SELECT PILOT</div>
       <div class="classGrid" id="classGrid"></div>
-      <div class="controls">
+      <div class="controls desktopControls">
         <div><b>WASD</b>/<b>ARROWS</b> move &amp; aim</div>
         <div><b>SPACE</b> dash</div>
         <div><b>E</b> overload</div>
         <div><b>P</b> pause</div>
         <div><b>I</b> loadout</div>
+        <div><b>F</b> fullscreen</div>
       </div>
+      <div class="touchControls"><span><b>DRAG</b> anywhere left to move</span><span><b>⇢</b> dash</span><span><b>◉</b> overload</span></div>
       <div class="bestscore" id="bestScoreLine">BEST — TIME 00:00 &nbsp;·&nbsp; SCORE 0</div>
       <button class="btn" id="startBtn">▶ START RUN</button>
     </div>
   </div>
 
   <!-- LEVEL UP SCREEN -->
-  <div id="levelupScreen" class="overlay hidden">
+  <div id="levelupScreen" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Choose an upgrade">
     <div class="subtitle" style="margin-bottom:4px;" id="luHeader">LEVEL UP</div>
     <div class="title" style="font-size:clamp(22px,5vw,40px);">CHOOSE AN UPGRADE</div>
     <div class="cards" id="cardsWrap"></div>
@@ -662,12 +739,13 @@
   </div>
 
   <!-- PAUSE SCREEN -->
-  <div id="pauseScreen" class="overlay hidden">
+  <div id="pauseScreen" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Game paused">
     <div class="title" style="font-size:clamp(28px,6vw,50px);">PAUSED</div>
     <div class="panel" style="max-width:420px;">
-      <div class="controls" style="display:flex;">
+      <div class="controls desktopControls" style="display:flex;">
         <div><b>WASD</b> move</div><div><b>SPACE</b> dash</div><div><b>E</b> overload</div><div><b>I</b> loadout</div><div><b>M</b> mute</div>
       </div>
+      <div class="touchControls"><span>Use the left-side drag zone to move</span><span>Right pads activate abilities</span></div>
       <button class="btn" id="resumeBtn">▶ RESUME</button>
       <button class="btn secondary" id="loadoutFromPauseBtn">▤ VIEW LOADOUT</button>
       <button class="btn secondary" id="retryFromPauseBtn">⟲ RESTART RUN</button>
@@ -676,7 +754,7 @@
   </div>
 
   <!-- STATS / LOADOUT SCREEN -->
-  <div id="statsScreen" class="overlay hidden">
+  <div id="statsScreen" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Pilot loadout">
     <div class="subtitle" style="margin-bottom:4px;">STATUS REPORT</div>
     <div class="title" style="font-size:clamp(22px,5vw,40px);">PILOT LOADOUT</div>
     <div class="panel statPanel" id="statsPanelContent"></div>
@@ -684,7 +762,7 @@
   </div>
 
   <!-- GAME OVER SCREEN -->
-  <div id="gameoverScreen" class="overlay hidden">
+  <div id="gameoverScreen" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Run results">
     <div class="title" id="goTitle" style="color:#ff2ea6;font-size:clamp(26px,6vw,54px);">SYSTEM FAILURE</div>
     <div class="panel">
       <div id="goDiff"></div>
@@ -705,6 +783,7 @@
         <div class="goCell">DAMAGE DEALT <b id="finalDamage">0</b></div>
       </div>
       <div class="buildStrip" id="goBuildStrip"></div>
+      <div id="nextUnlock" class="bestscore" style="margin-top:10px;"></div>
       <div id="unlockNote" class="bestscore hidden" style="margin-top:10px;"></div>
       <button class="btn hidden" id="continueBtn">▶▶ CONTINUE — ENDLESS</button>
       <button class="btn" id="restartBtn">⟲ TRY AGAIN</button>
@@ -729,6 +808,7 @@
 
 const TAU = Math.PI * 2;
 const WORLD_W = 4000, WORLD_H = 4000;
+const MAX_ENEMY_RADIUS = 70; // Architect is 66px; keep a little collision headroom.
 
 /* ============================= SETUP ============================= */
 const canvas = document.getElementById('game');
@@ -741,16 +821,22 @@ let fxScale = 1;                // particle budget, dialled back before pixels a
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let viewW = 0, viewH = 0;   // last raw viewport seen, for the per-frame staleness check
+let canvasDirty = true;
 
 function resize(){
   // A browser can hand you a zero-size viewport transiently — a hidden/collapsed
   // iframe, a mobile rotation mid-flight. Zero would make canvas.width 0, which
   // renders nothing and throws in some canvas paths, and nothing ever recovered
   // because the "did the viewport change" test then compared 0 against 0.
-  viewW = window.innerWidth  || 0;
-  viewH = window.innerHeight || 0;
-  W = Math.max(1, viewW);
-  H = Math.max(1, viewH);
+  const nextViewW = window.innerWidth  || 0;
+  const nextViewH = window.innerHeight || 0;
+  const nextW = Math.max(1, nextViewW);
+  const nextH = Math.max(1, nextViewH);
+  const layoutChanged = nextW !== W || nextH !== H;
+  viewW = nextViewW;
+  viewH = nextViewH;
+  W = nextW;
+  H = nextH;
   // re-sample DPR: browser zoom or dragging to another monitor changes it, and
   // sampling it once at load leaves the canvas permanently mis-scaled
   DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -763,10 +849,13 @@ function resize(){
   canvas.style.height = H + 'px';
   ctx.setTransform(eff, 0, 0, eff, 0, 0);
   ctx.imageSmoothingEnabled = true;
-  if (player) updateCamera();   // snap so the view never lags a resize
+  canvasDirty = true;
+  // A quality-only backing-store resize must not snap away the camera lead.
+  if (player && layoutChanged) updateCamera();
 }
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+document.addEventListener('fullscreenchange', () => setTimeout(resize, 0));
 
 /* ============================= UTIL ============================= */
 const rand      = (a,b) => a + Math.random()*(b-a);
@@ -1196,16 +1285,36 @@ function isTypingTarget(el){
   return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 }
 
+function isInteractiveTarget(el){
+  return !!(el && (el.closest('button, [role="button"], a, input, select, textarea')));
+}
+
+function toggleFullscreen(){
+  const root = document.documentElement;
+  try{
+    const p = document.fullscreenElement ? document.exitFullscreen() : root.requestFullscreen();
+    if (p && p.catch) p.catch(() => {});
+  }catch(e){}
+}
+
 window.addEventListener('keydown', e => {
   if (isTypingTarget(e.target)) return;
   const k = e.key.toLowerCase();
-  if (['arrowup','arrowdown','arrowleft','arrowright',' ','spacebar'].includes(k)) e.preventDefault();
+  const interactive = isInteractiveTarget(e.target);
+  if (state === 'playing' && !interactive && ['arrowup','arrowdown','arrowleft','arrowright',' ','spacebar'].includes(k)) e.preventDefault();
   if (e.repeat) return;   // holding a key must not strobe the overlays
+
+  if (k === 'f' && !interactive){ toggleFullscreen(); return; }
+  if (k === 'escape' && document.fullscreenElement){
+    e.preventDefault();
+    document.exitFullscreen().catch(() => {});
+    return;
+  }
 
   // Queue actions only while actually playing. Without the guard, an ability key
   // pressed on the level-up screen sat in the queue and fired the instant the
   // card was picked — an Overload you never asked for, spent on nothing.
-  if (state === 'playing'){
+  if (state === 'playing' && !interactive){
     if (!e.repeat && (k === ' ' || k === 'spacebar' || k === 'shift')) dashQueued = true;
     if (!e.repeat && (k === 'e' || k === 'q')) ultQueued = true;
   }
@@ -1230,7 +1339,10 @@ window.addEventListener('keydown', e => {
     }
     if (k === '4') skipLevelUp();
   }
-  if ((state === 'start' || state === 'gameover') && (k === 'enter')) startGame();
+  if ((state === 'start' || state === 'gameover') && !interactive && (k === 'enter' || k === ' ' || k === 'spacebar')){
+    e.preventDefault();
+    startGame();
+  }
 });
 window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 
@@ -1268,6 +1380,7 @@ const JOY_R = 55;
 function armTouchUI(){
   if (usingTouch) return;
   usingTouch = true;
+  document.body.classList.add('touch-mode');
   dashBtn.classList.add('on');
   ultBtn.classList.add('on');
 }
@@ -1341,6 +1454,77 @@ function readGamepad(out){
     return m >= 0.18 || dPressed || uPressed;
   }
   return false;
+}
+
+/* A controller run used to end at its first upgrade: gamepad polling lived inside
+   updatePlayer(), which stops while every overlay is open. Poll once per rendered
+   frame as well, keep menu actions edge-triggered, and use the same focus path as
+   keyboard navigation so a pad can finish the whole run without a mouse. */
+let padMenuDir = 0, padMenuAccept = false, padMenuBack = false, padMenuPause = false;
+function menuPadTargets(){
+  if (state === 'start') return [...document.querySelectorAll('#diffRow .diffBtn, #classGrid .classCard:not(.locked), #startBtn')];
+  if (state === 'levelup') return [...document.querySelectorAll('#cardsWrap .card, #rerollBtn:not(:disabled), #banishBtn:not(:disabled), #skipBtn:not(:disabled)')];
+  if (state === 'paused') return [...document.querySelectorAll('#resumeBtn, #loadoutFromPauseBtn, #retryFromPauseBtn, #restartFromPauseBtn')];
+  if (state === 'stats') return [document.getElementById('closeStatsBtn')];
+  if (state === 'gameover') return [...document.querySelectorAll('#continueBtn:not(.hidden), #restartBtn, #menuBtn')];
+  return [];
+}
+
+function defaultPadTarget(targets){
+  if (!targets.length) return null;
+  const preferred = state === 'start' ? document.getElementById('startBtn')
+    : state === 'paused' ? document.getElementById('resumeBtn')
+    : state === 'stats' ? document.getElementById('closeStatsBtn')
+    : state === 'gameover' ? (document.querySelector('#continueBtn:not(.hidden)') || document.getElementById('restartBtn'))
+    : targets[0];
+  return targets.includes(preferred) ? preferred : targets[0];
+}
+
+function pollGamepadMenus(){
+  if (!navigator.getGamepads) return;
+  const pads = navigator.getGamepads();
+  let p = null;
+  for (let i=0;i<pads.length;i++) if (pads[i] && pads[i].connected){ p = pads[i]; break; }
+  if (!p){
+    padMenuDir = 0; padMenuAccept = false; padMenuBack = false; padMenuPause = false;
+    return;
+  }
+
+  const pressed = i => !!(p.buttons[i] && p.buttons[i].pressed);
+  const x = p.axes[0] || 0, y = p.axes[1] || 0;
+  let dir = 0;
+  if (pressed(12) || y < -0.62 || pressed(14) || x < -0.62) dir = -1;
+  else if (pressed(13) || y > 0.62 || pressed(15) || x > 0.62) dir = 1;
+  const accept = pressed(0), back = pressed(1), pause = pressed(9);
+
+  if (pause && !padMenuPause && (state === 'playing' || state === 'paused')) togglePause();
+
+  if (state !== 'playing'){
+    const targets = menuPadTargets().filter(Boolean);
+    if (dir && !padMenuDir && targets.length){
+      let idx = targets.indexOf(document.activeElement);
+      if (idx < 0) idx = targets.indexOf(defaultPadTarget(targets));
+      idx = (idx + dir + targets.length) % targets.length;
+      targets[idx].focus({preventScroll:false});
+      Audio_.click();
+    }
+    if (accept && !padMenuAccept && targets.length){
+      const current = targets.includes(document.activeElement) ? document.activeElement : defaultPadTarget(targets);
+      if (current){
+        current.focus({preventScroll:false});
+        current.click();
+        // A is also a gameplay dash button; consuming it in a menu must not fire
+        // a dash on the same frame that the menu closes.
+        if (state === 'playing') padDash = true;
+      }
+    }
+    if (back && !padMenuBack){
+      if (state === 'paused'){ padDash = true; togglePause(); }
+      else if (state === 'stats') closeStats();
+    }
+  }
+
+  padMenuDir = dir; padMenuAccept = accept; padMenuBack = back; padMenuPause = pause;
 }
 
 /* ============================= GAME STATE ============================= */
@@ -1434,6 +1618,10 @@ function gridInsert(e){
   const cy = clamp((e.y / GCELL)|0, 0, GH-1);
   cells[cy*GW + cx].push(e);
 }
+function rebuildEnemyGrid(){
+  gridClear();
+  for (let i=0;i<enemies.length;i++) if (!enemies[i].dead) gridInsert(enemies[i]);
+}
 /* Independent scratch buffers so a query inside a query never clobbers the outer
    one: qA = outer iteration, qB = reactions (retaliate/siphon), qC = nearestEnemy,
    qD = one-shot player AoEs (the revive blast).
@@ -1469,21 +1657,41 @@ function compact(arr){
   arr.length = w;
 }
 
-function makePool(n, factory){
+function makePool(n, factory, policy){
   const items = new Array(n);
   for (let i=0;i<n;i++){ items[i] = factory(); items[i].active = false; }
   return {
-    items, n, ptr: 0,
-    // round-robin: O(1), never allocates. At saturation the oldest entry is
-    // recycled, which is exactly the behaviour you want for particles anyway.
-    get(){ const o = items[this.ptr]; this.ptr = (this.ptr+1) % n; o.active = true; return o; },
+    items, n, ptr: 0, policy:policy || 'overwrite',
+    get(){
+      /* Visual pools and deliberately overprovisioned projectile pools recycle
+         oldest-first in O(1). The projectile budget covers a fully capped burst
+         through its multi-carom lifetime; only the intentionally uncapped late
+         Overclock can eventually force oldest-shot eviction. Gems consolidate
+         at saturation, preserving every point of earned XP. */
+      if (this.policy !== 'overwrite'){
+        for (let k=0;k<n;k++){
+          const idx = (this.ptr+k) % n;
+          if (!items[idx].active){
+            this.ptr = (idx+1) % n;
+            items[idx].active = true;
+            return items[idx];
+          }
+        }
+        if (this.policy === 'reject') return null;
+      }
+      const o = items[this.ptr];
+      this.ptr = (this.ptr+1) % n;
+      o.active = true;
+      return o;
+    },
   };
 }
 
-const PARTS = makePool(1400, () => ({x:0,y:0,vx:0,vy:0,life:0,maxLife:1,size:2,color:'#fff',grav:0,drag:0.96,glow:false,spr:null}));
-const BULLETS = makePool(600, () => ({x:0,y:0,vx:0,vy:0,radius:4.5,dmg:0,pierceLeft:0,life:0,maxLife:2,ricochetLeft:0,chainLeft:0,hits:[],trailT:0,drone:false}));
-const EBULLETS = makePool(500, () => ({x:0,y:0,vx:0,vy:0,radius:5,dmg:0,life:0,maxLife:3,homing:false,turnRate:0,color:'#ff5f2e',src:''}));
-const GEMS = makePool(900, () => ({x:0,y:0,vx:0,vy:0,value:1,radius:5,big:false}));
+const PARTS = makePool(1400, () => ({x:0,y:0,vx:0,vy:0,life:0,maxLife:1,size:2,color:'#fff',grav:0,drag:0.96,glow:false,spr:null}), 'overwrite');
+const BULLETS = makePool(3000, () => ({x:0,y:0,vx:0,vy:0,radius:4.5,dmg:0,pierceLeft:0,life:0,maxLife:2,ricochetLeft:0,hits:[],trailT:0,drone:false}), 'overwrite');
+const EBULLETS = makePool(800, () => ({x:0,y:0,vx:0,vy:0,radius:5,dmg:0,life:0,maxLife:3,homing:false,turnRate:0,color:'#ff5f2e',src:''}), 'overwrite');
+const GEMS = makePool(900, () => ({x:0,y:0,vx:0,vy:0,value:1,radius:5,big:false}), 'reject');
+let liveGemCount = 0;
 const TEXTS = makePool(90, () => ({x:0,y:0,str:'',color:'#fff',size:14,life:0,maxLife:0.8,vy:-40}));
 const ARCS = makePool(80, () => ({x1:0,y1:0,x2:0,y2:0,life:0,maxLife:0.15,color:'#c86bff'}));
 
@@ -1519,13 +1727,48 @@ function spawnArc(x1,y1,x2,y2,color){
   a.x1=x1; a.y1=y1; a.x2=x2; a.y2=y2; a.life=0; a.maxLife=0.15; a.color=color||'#c86bff';
 }
 function spawnGem(x, y, value){
-  const g = GEMS.get();
+  let g = null;
+  if (liveGemCount < GEMS.n){
+    for (let k=0;k<GEMS.n;k++){
+      const idx = (GEMS.ptr+k) % GEMS.n;
+      if (!GEMS.items[idx].active){
+        g = GEMS.items[idx];
+        GEMS.ptr = (idx+1) % GEMS.n;
+        g.active = true;
+        liveGemCount++;
+        break;
+      }
+    }
+  }
+  if (!g){
+    // Preserve progression under extreme kill rates and put the consolidated
+    // drop where the new kill happened. Merging into an old remote gem made a
+    // saturated field look as though current enemies had stopped dropping XP.
+    const m = GEMS.items[GEMS.ptr];
+    GEMS.ptr = (GEMS.ptr + 1) % GEMS.n;
+    m.x=x; m.y=y; m.vx=rand(-40,40); m.vy=rand(-40,40); m.magnetized=false;
+    m.value += value;
+    m.big = true;
+    m.radius = Math.min(13, 8 + Math.log2(Math.max(2,m.value)));
+    return;
+  }
   g.x=x; g.y=y; g.vx=rand(-40,40); g.vy=rand(-40,40);
   g.value=value; g.big = value >= 15; g.magnetized = false;
   g.radius = g.big ? 9 : 5 + Math.min(4, value*0.25);
 }
 
 /* ============================= WORLD ============================= */
+/* Fixed visual anchors give the large arena places you can recognise instead of
+   one interchangeable grid. They are intentionally non-blocking: landmarks aid
+   navigation without adding another collision edge to get snagged on. */
+const LANDMARKS = [
+  { x:WORLD_W/2, y:WORLD_H/2, r:230, name:'NEXUS',        color:'#05f2f2', spokes:8 },
+  { x:690,       y:720,       r:175, name:'ARC FOUNDRY', color:'#ff8a2e', spokes:6 },
+  { x:3310,      y:730,       r:175, name:'VOID ARRAY',  color:'#c86bff', spokes:7 },
+  { x:710,       y:3290,      r:175, name:'VERDANT BUS', color:'#39ff88', spokes:5 },
+  { x:3290,      y:3280,      r:175, name:'REDLINE',     color:'#ff2ea6', spokes:9 },
+];
+
 // Ion pylons: solid cover that blocks you and every enemy, and eats enemy fire.
 // Your rounds are phase-tuned to pass through — so the world is a tool, never a
 // source of "my auto-aim shot a wall" frustration.
@@ -1544,7 +1787,7 @@ function generatePylons(){
       if (dist2(x,y,p.x,p.y) < (r+p.r+230)*(r+p.r+230)){ ok = false; break; }
     }
     if (!ok) continue;
-    pylons.push({ x, y, r, seed: rand(0,TAU) });
+    pylons.push({ x, y, r, seed: rand(0,TAU), charge:0, overloadT:0, flashT:0 });
   }
   buildPylonIndex();
   miniStatic = null;      // the baked minimap layer is now stale
@@ -1605,6 +1848,37 @@ function blockedByPylon(x, y, r){
   }
   return false;
 }
+
+/* Cover is powerful but not permanent. Six absorbed rounds overload a pylon's
+   energy screen for three seconds; bodies still collide with the structure, but
+   hostile fire passes through. This turns cover into a rhythm instead of a spot
+   where ranged fights and bosses can be invalidated forever. */
+function absorbEnemyShot(x, y, r){
+  const near = pylonsNear(x, y);
+  for (let i=0;i<near.length;i++){
+    const p = near[i];
+    if (p.overloadT > 0) continue;
+    const rr = p.r + r;
+    if (dist2(x,y,p.x,p.y) >= rr*rr) continue;
+    p.charge++;
+    p.flashT = 0.14;
+    if (p.charge >= 6){
+      p.charge = 0;
+      p.overloadT = 3;
+      burst(p.x, p.y, '#ff8a2e', 18, {minSpd:70,maxSpd:240,minLife:0.2,maxLife:0.5});
+    }
+    return true;
+  }
+  return false;
+}
+
+function updatePylons(dt){
+  for (let i=0;i<pylons.length;i++){
+    const p = pylons[i];
+    if (p.overloadT > 0) p.overloadT = Math.max(0, p.overloadT-dt);
+    if (p.flashT > 0) p.flashT = Math.max(0, p.flashT-dt);
+  }
+}
 // rejection-sample a spot that isn't inside cover
 function freeSpot(x, y, radius, tries){
   tries = tries || 12;
@@ -1620,14 +1894,14 @@ function freeSpot(x, y, radius, tries){
 /* ============================= PILOT CLASSES ============================= */
 const CLASSES = [
   {
-    id:'striker', name:'STRIKER', role:'ALL-ROUNDER', icon:'◈', color:'#05f2f2',
+    id:'striker', name:'STRIKER', role:'ALL-ROUNDER', icon:'◈', color:'#05f2f2', shape:'diamond',
     perk:'Marksman targeting — high crit chance and crit damage.',
     stats:{ maxHealth:110, speed:234, damage:13, fireRate:2.4, projectileCount:1, projectileSpeed:560,
             critChance:0.12, critMult:2.6, pierce:0, dashCharges:2 },
     init(){},
   },
   {
-    id:'tempest', name:'TEMPEST', role:'SHOTGUN / GLASS', icon:'✺', color:'#ff2ea6',
+    id:'tempest', name:'TEMPEST', role:'SHOTGUN / GLASS', icon:'✺', color:'#ff2ea6', shape:'star',
     perk:'Three-round scatter and a third dash charge. Very fragile.',
     // 6.4 x volleyMult(3) lands back on the 5.4 this was tuned to: the wide-volley
     // falloff is meant to tax Split Shot STACKING, not to quietly nerf the pilot
@@ -1637,7 +1911,7 @@ const CLASSES = [
     init(p){ p.dash.cd = 1.7; p.spreadBase = 0.17; },
   },
   {
-    id:'warden', name:'WARDEN', role:'BRUISER', icon:'⛨', color:'#39ff88',
+    id:'warden', name:'WARDEN', role:'BRUISER', icon:'⛨', color:'#39ff88', shape:'hex',
     perk:'Opens with an orbital blade, a shield charge and 12% damage resistance.',
     unlock:{ key:'ns_unlock_warden', how:'Reach LEVEL 12 in a single run' },
     stats:{ maxHealth:158, speed:208, damage:9.5, fireRate:2.0, projectileCount:1, projectileSpeed:520,
@@ -1650,7 +1924,7 @@ const CLASSES = [
     },
   },
   {
-    id:'reaper', name:'REAPER', role:'SNIPER', icon:'✧', color:'#c86bff',
+    id:'reaper', name:'REAPER', role:'SNIPER', icon:'✧', color:'#c86bff', shape:'spike',
     perk:'Slow, enormous piercing rounds. +35% damage to elites and bosses.',
     unlock:{ key:'ns_unlock_reaper', how:'Defeat 3 bosses in a single run' },
     stats:{ maxHealth:94, speed:226, damage:32, fireRate:0.95, projectileCount:1, projectileSpeed:840,
@@ -1664,7 +1938,7 @@ const CLASSES = [
      that lasts long enough to chain. Its gun is deliberately mediocre so the
      damage has to come from committing to enemy fire. */
   {
-    id:'echo', name:'ECHO', role:'PHASE DUELIST', icon:'⟡', color:'#7fd3ff',
+    id:'echo', name:'ECHO', role:'PHASE DUELIST', icon:'⟡', color:'#7fd3ff', shape:'oct',
     perk:'Four dashes, a lethal phase blade, and Surge that lasts twice as long and hits harder.',
     unlock:{ key:'ns_unlock_echo', how:'Purge the grid — destroy THE ARCHITECT' },
     stats:{ maxHealth:104, speed:248, damage:9.5, fireRate:2.2, projectileCount:1, projectileSpeed:600,
@@ -1682,7 +1956,7 @@ const isUnlocked = c => !c.unlock || Store.get(c.unlock.key,'0') === '1';
 function newPlayer(cls){
   const s = cls.stats;
   const p = {
-    classId: cls.id, classColor: cls.color,
+    classId: cls.id, classColor: cls.color, classShape: cls.shape || 'diamond',
     x: WORLD_W/2, y: WORLD_H/2, radius: 14,
     mvx: 0, mvy: 0,
     speed: s.speed,
@@ -1896,7 +2170,7 @@ const upgradePool = [
     name:p=> p.ricochet ? 'Superconductor Rounds' : 'Carom Shot',
     desc:(p,s)=> p.ricochet ? '+'+s+' extra ricochet'+(s>1?'s':'')
                             : 'Spent rounds ricochet into a new target instead of vanishing',
-    apply:(p,s)=>{ p.ricochet += p.ricochet ? s : 1 + s; } },
+    apply:(p,s)=>{ p.ricochet += s; } },
 
   { id:'berserk', icon:'💢', color:'#ff2ea6', max:4, weight:6,
     name:p=> p.berserk ? 'Adrenal Overdrive' : 'Berserk Protocol',
@@ -2118,7 +2392,12 @@ const RARITIES = [
 
 function rollRarity(){
   const lvl = player.level;
-  const wC = 62, wR = 26 + lvl*0.5, wE = 7 + lvl*0.8;
+  // Rarity is excitement, not the build system itself. Capping the late growth
+  // keeps EPIC near 18% rather than letting it approach one card in three and
+  // exhausting every authored line long before the finale.
+  const wC = 62;
+  const wR = 26 + Math.min(lvl,45)*0.40;
+  const wE = 7  + Math.min(lvl,45)*0.38;
   const r = Math.random() * (wC + wR + wE);
   if (r < wC) return RARITIES[0];
   if (r < wC + wR) return RARITIES[1];
@@ -2154,7 +2433,7 @@ function checkEvoUnlocks(){
     const u = EVOLUTIONS[i];
     if (evoAnnounced[u.id] || !evoReady(u)) continue;
     evoAnnounced[u.id] = 1;
-    showToast('EVOLUTION AVAILABLE — ' + u.name() + ' will appear at your next level-up');
+    showToast('EVOLUTION AVAILABLE — ' + u.name() + ' is guaranteed in upgrade drafts', 1);
     Audio_.ultReady();
     spawnText(player.x, player.y-56, '◆ ' + u.name() + ' ◆', u.color, 19, 1.8);
   }
@@ -2176,9 +2455,10 @@ function rollOffers(n){
   n = n || 3;
   const offers = [];
   const evos = eligibleEvolutions();
-  // an available evolution takes one slot most of the time — you should feel it coming
-  if (evos.length && Math.random() < 0.7){
-    const e = pick(evos);
+  // Every ready evolution gets priority, not one random winner. If more recipes
+  // are ready than there are slots, the remainder stay guaranteed next draft.
+  while (offers.length < n && evos.length){
+    const e = evos.splice((Math.random()*evos.length)|0, 1)[0];
     offers.push({ u:e, rarity:{ key:'evo', label:'◆ EVOLUTION ◆', stacks:1, cls:'rar-evo' }, stacks:1 });
   }
   const pool = eligibleUpgrades();
@@ -2327,10 +2607,10 @@ const MAX_ENEMIES = 200;
    walk away. Leaner bodies with the same damage output make them a fight you
    choose to take. */
 const ELITE_MODS = [
-  { key:'swift',    name:'SWIFT',    color:'#f9e838', hp:2.0, speed:1.62, dmg:1.0 },
-  { key:'armored',  name:'ARMORED',  color:'#8fb6d6', hp:3.4, speed:0.80, dmg:1.15, dr:0.34 },
-  { key:'volatile', name:'VOLATILE', color:'#ff8a2e', hp:2.3, speed:1.05, dmg:1.2 },
-  { key:'siphon',   name:'SIPHON',   color:'#39ff88', hp:2.6, speed:0.95, dmg:1.0, heals:true },
+  { key:'swift',    name:'SWIFT',    color:'#f9e838', hp:1.9, speed:1.62, dmg:1.0 },
+  { key:'armored',  name:'ARMORED',  color:'#8fb6d6', hp:2.5, speed:0.80, dmg:1.15, dr:0.26 },
+  { key:'volatile', name:'VOLATILE', color:'#ff8a2e', hp:2.2, speed:1.05, dmg:1.2 },
+  { key:'siphon',   name:'SIPHON',   color:'#39ff88', hp:2.4, speed:0.95, dmg:1.0, heals:true },
 ];
 
 /* Slightly steeper early, meaningfully gentler past the six-minute mark. The old
@@ -2429,12 +2709,14 @@ function spawnEnemy(typeKey, opts){
   let xp = base.xp;
 
   if (eliteMod){
-    hp *= 2.2 * eliteMod.hp;
+    hp *= 1.85 * eliteMod.hp;
     dmg *= 1.35 * eliteMod.dmg;
     speed *= eliteMod.speed;
     radius *= 1.28;
     xp *= 6;
   }
+
+  if (opts.summoned) xp *= 0.35;
 
   const e = {
     type: typeKey,
@@ -2457,6 +2739,8 @@ function spawnEnemy(typeKey, opts){
     weaveDir: Math.random() < 0.5 ? 1 : -1, weaveT: rand(1.5,3.5),
     fuse: -1, ring: rand(0,TAU),
     lastDashHit: -1, healT: 0,
+    summoned: !!opts.summoned,
+    farT:0, burnTick:0,
     boss: false, dead: false,
   };
   enemies.push(e);
@@ -2464,7 +2748,7 @@ function spawnEnemy(typeKey, opts){
   // you have to reverse-engineer mid-fight reads as an unfair death, not a lesson
   if (!seenTypes[typeKey]){
     seenTypes[typeKey] = 1;
-    if (base.tip){ showToast(base.tip); Audio_.warn(); }
+    if (base.tip){ showToast(base.tip, 1); Audio_.warn(); }
   }
   if (eliteMod){
     burst(e.x, e.y, eliteMod.color, 18, {minSpd:60,maxSpd:220,minLife:0.3,maxLife:0.6});
@@ -2487,7 +2771,7 @@ function spawnHazard(x, y, r, dps, life, color, src){
 }
 function updateHazards(dt){
   if (!hazards.length) return;
-  for (let i=0;i<hazards.length;i++){
+  for (let i=0;i<hazards.length && state === 'playing';i++){
     const h = hazards[i];
     h.life += dt;
     if (h.life >= h.maxLife){ h.dead = true; continue; }
@@ -2498,7 +2782,7 @@ function updateHazards(dt){
       h.tick -= dt;
       if (h.tick <= 0 && dist2(player.x, player.y, h.x, h.y) < rr*rr){
         h.tick = 0.5;
-        damagePlayer(h.dps, false, h.x, h.y, h.src || 'CORROSIVE GROUND');
+        damagePlayer(h.dps * 0.5, false, h.x, h.y, h.src || 'CORROSIVE GROUND');
       }
     }
     if (!reducedMotion && fxScale > 0.5 && Math.random() < dt*7 && inView(h.x, h.y, h.r)){
@@ -2558,13 +2842,23 @@ const BOSS_AFFIXES = [
     apply(b){ b.unstable = true; } },
 ];
 
+// Draw each currently available routine boss once before repeating one. Pure
+// random selection could serve three Sentinels in a row and hide half the game's
+// best encounters for an entire run.
+let bossCycle = {};
+function nextBossType(idx){
+  const eligible = Object.keys(BOSS_TYPES).filter(k => !BOSS_TYPES[k].final && idx >= BOSS_TYPES[k].unlockAt);
+  let choices = eligible.filter(k => !bossCycle[k]);
+  if (!choices.length){ bossCycle = {}; choices = eligible; }
+  const key = pick(choices);
+  bossCycle[key] = true;
+  return key;
+}
+
 function spawnBoss(forceKey){
   const idx = bossSpawnedCount;
   let typeKey = forceKey;
-  if (!typeKey){
-    const eligible = Object.keys(BOSS_TYPES).filter(k => idx >= BOSS_TYPES[k].unlockAt);
-    typeKey = pick(eligible);
-  }
+  if (!typeKey) typeKey = nextBossType(idx);
   const cfg = BOSS_TYPES[typeKey];
   const isFinal = !!cfg.final;
   // affixes start once the roster has stopped being new, and get near-certain late.
@@ -2576,8 +2870,13 @@ function spawnBoss(forceKey){
   // fight never gets easier and the reward loop cancels itself out. Riding the
   // same curve as the trash keeps a boss proportionally threatening while still
   // letting a good build feel genuinely powerful.
-  const baseHp  = 340 * hpScale(elapsed)  * (1 + idx*0.5);
-  const baseDmg = 18  * dmgScale(elapsed) * (1 + idx*0.1);
+  // Time already scales boss hulls steeply. A fixed finale index prevents a
+  // player who killed routine bosses efficiently from being punished with a
+  // dramatically larger Architect than a player who stalled them.
+  const indexScale = isFinal ? 4.25 : 1 + Math.min(idx,9)*0.42;
+  const baseHp  = 340 * hpScale(elapsed)  * indexScale;
+  const damageIndex = isFinal ? 4.25 : Math.min(idx,9);
+  const baseDmg = 18  * dmgScale(elapsed) * (1 + damageIndex*0.1);
 
   // Drop it a screen away in open ground. Clamping a single angle against the
   // world bounds could land a boss on top of a player standing in a corner —
@@ -2606,12 +2905,12 @@ function spawnBoss(forceKey){
     dmg: baseDmg*cfg.dmgMult, xp: Math.round((70 + idx*18 + elapsed*0.35) * (affix ? 1.3 : 1)),
     color: cfg.glow, baseColor: cfg.glow, glow: cfg.glow,
     shape: cfg.shape, ranged: typeKey !== 'juggernaut', splits:false, weaves:false, bomber:false,
-    fireTimer: 1.6, hitFlash:0, touchCd:0, orbitCd:0, stun:0, burn:0, burnDps:0,
+    fireTimer: 1.6, hitFlash:0, touchCd:0, orbitCd:0, stun:0, burn:0, burnDps:0, burnTick:0,
     slowT:0, slowAmt:0, _slow:1, _vx:0, _vy:0, windup:0, aimAng:0,
     elite:false, eliteMod:null, dr:0, ring:0,
     fuse:-1, lastDashHit:-1, healT:0,
     boss:true, dead:false,
-    enrage: 0, ageT: 0, phase: 0,
+    enrage: 0, ageT: 0, phase: 0, phaseGate:0,
     chargeState:'idle', chargeTimer:rand(3,4.5), chargeDirX:0, chargeDirY:0, chargeHit:false,
     summonTimer: rand(4,5.5),
     telegraphTimer: rand(3,4.5), telegraph:null,
@@ -2629,9 +2928,9 @@ function spawnBoss(forceKey){
   spawnText(player.x, player.y-70, b.bossName.toUpperCase()+' INCOMING', affix ? affix.color : cfg.glow, isFinal ? 30 : 24, 2.4);
   if (isFinal){
     hitStop = Math.max(hitStop, 0.2);
-    showToast('THE ARCHITECT HAS WOKEN — destroy it and the grid is yours');
+    showToast('THE ARCHITECT HAS WOKEN — destroy it and the grid is yours', 2);
   } else {
-    showToast(b.bossName.toUpperCase() + (affix ? ' — ' + affix.tip : ' has entered the grid'));
+    showToast(b.bossName.toUpperCase() + (affix ? ' — ' + affix.tip : ' has entered the grid'), 2);
   }
   return b;
 }
@@ -2656,14 +2955,20 @@ const expectedLevel = t => 1 + 7.4*Math.pow(Math.max(0,t)/60, 0.74);
 let pressureSmooth = 1;
 function pressureTarget(){
   const hp    = player.health / player.maxHealth;
-  const crowd = enemies.length / MAX_ENEMIES;
+  let nearby = 0;
+  const localR2 = 1350*1350;
+  for (let i=0;i<enemies.length;i++){
+    const e = enemies[i];
+    if (!e.dead && dist2(e.x,e.y,player.x,player.y) < localR2) nearby++;
+  }
+  const crowd = nearby / (MAX_ENEMIES*0.72);
   const gap   = player.level - expectedLevel(spawnClock);
   return clamp(
     1
     + clamp(hp - 0.72, -0.35, 0.28) * 0.55      // cruising at full hull → lean on them
     + clamp(0.30 - crowd, -0.30, 0.30) * 0.60   // empty screen → they are dying too fast
     + clamp(gap, -8, 8) * 0.028,                // build genuinely ahead of the curve
-    0.62, 1.55);
+    0.74, 1.35);
 }
 // smoothed so a single unlucky second cannot spike the spawn budget
 function updatePressure(dt){
@@ -2677,13 +2982,15 @@ function updateSpawning(dt){
   // The clock keeps creeping during a boss fight, just slower. Freezing it
   // outright meant a player who simply declined to kill the boss froze the
   // entire difficulty curve and farmed survival time for free.
-  spawnClock += dt * (bossFight ? 0.4 : 1);
+  spawnClock += dt * (bossFight ? 0.72 : 1);
   updatePressure(dt);
   const pr = pressure();
 
   spawnTimer -= dt;
   if (spawnTimer <= 0){
-    spawnTimer = Math.max(0.26, (1.2 - spawnClock*0.0055) / (pr * DIFF.spawn)) * (bossFight ? 2.8 : 1);
+    // Apply the profile after the floor so density differences remain real late
+    // in the run instead of all three profiles collapsing onto 0.26 seconds.
+    spawnTimer = (Math.max(0.24, (1.2 - spawnClock*0.0055) / pr) / DIFF.spawn) * (bossFight ? 2.8 : 1);
     const types = availableTypes(spawnClock);
     // gentler ramp than the old /85: the field used to saturate to the body cap
     // inside four minutes, after which the director had no headroom left to push
@@ -2712,11 +3019,27 @@ function updateSpawning(dt){
     threatLevel = 1 + Math.floor(spawnClock/20);
   }
 
-  if (bossFight){
+  if (bossFight && !bossRef.isFinal && !finalSpawned && elapsed >= FINAL_TIME){
+    // The objective says 12:00, so a routine boss cannot hold the finale hostage.
+    // The Architect recalls the old process, clears its frozen bullet pattern,
+    // and takes the arena immediately; no free boss bounty is awarded for kiting.
+    const recalled = bossRef;
+    finalSpawned = true;
+    recalled.dead = true;
+    burst(recalled.x, recalled.y, '#f9e838', 42, {minSpd:120,maxSpd:500,minLife:0.3,maxLife:0.75});
+    spawnText(recalled.x, recalled.y-recalled.radius-20, 'PROCESS OVERRIDDEN', '#f9e838', 18, 1.4);
+    clearEnemyBullets(player.x, player.y, Infinity, '#f9e838');
+    bossAlive = false;
+    bossRef = null;
+    spawnBoss('architect');
+    showToast('ARCHITECT OVERRIDE — routine target recalled', 2);
+  } else if (bossFight){
     // bosses ramp instead of being kited forever
     bossRef.ageT += dt;
     if (bossRef.ageT > 45){
-      bossRef.enrage = clamp((bossRef.ageT-45)/40, 0, 1);
+      // Overtime keeps escalating, so outrunning a boss is never a way to freeze
+      // the run and farm a low-pressure field forever.
+      bossRef.enrage = clamp((bossRef.ageT-45)/40, 0, 2);
       bossRef.speed = bossRef.baseSpeed * (1 + bossRef.enrage*0.9);
     }
   } else if (!finalSpawned && elapsed >= FINAL_TIME){
@@ -2731,7 +3054,7 @@ function updateSpawning(dt){
   if (!finalSpawned && !finalWarned && elapsed >= FINAL_TIME - 30){
     finalWarned = true;
     Audio_.warn();
-    showToast('THE ARCHITECT IS COMING ONLINE — 30 SECONDS');
+    showToast('THE ARCHITECT IS COMING ONLINE — 30 SECONDS', 2);
   }
 
   // loot crates keep the world worth roaming
@@ -2756,8 +3079,29 @@ const PICKUP_TYPES = {
 };
 const PICKUP_KEYS = Object.keys(PICKUP_TYPES);
 
+function choosePickupKind(){
+  const hp = player ? player.health/player.maxHealth : 1;
+  const gems = liveGemCount;
+  const crowd = enemies.length;
+  const weighted = [
+    ['heal',   hp > 0.90 ? 0.05 : hp > 0.70 ? 0.45 : hp < 0.35 ? 2.4 : 1.1],
+    ['frenzy', bossAlive ? 1.5 : 1.0],
+    ['freeze', crowd > 85 ? 1.7 : 0.9],
+    ['nuke',   crowd > 110 ? 1.8 : bossAlive ? 1.25 : 0.8],
+    ['magnet', 0.7 + Math.min(1.8, gems/180)],
+  ];
+  let total = 0;
+  for (let i=0;i<weighted.length;i++) total += weighted[i][1];
+  let r = Math.random()*total;
+  for (let i=0;i<weighted.length;i++){
+    r -= weighted[i][1];
+    if (r <= 0) return weighted[i][0];
+  }
+  return 'frenzy';
+}
+
 function spawnPickup(x, y, kind){
-  kind = kind || pick(PICKUP_KEYS);
+  kind = kind || choosePickupKind();
   const s = freeSpot(clamp(x,30,WORLD_W-30), clamp(y,30,WORLD_H-30), 18, 8);
   pickups.push({ x:s.x, y:s.y, kind, radius:15, bob:rand(0,TAU), life:0, dead:false });
 }
@@ -2767,7 +3111,7 @@ function spawnCrateAt(x, y){
   crates.push({ x:s.x, y:s.y, radius:16, bob:rand(0,TAU), dead:false });
 }
 function spawnInitialCrates(){
-  for (let i=0;i<26;i++){
+  for (let i=0;i<18;i++){
     let x, y, tries = 0;
     do { x = rand(120, WORLD_W-120); y = rand(120, WORLD_H-120); tries++; }
     while (dist2(x,y,player.x,player.y) < 300*300 && tries < 24);
@@ -2784,15 +3128,15 @@ function openCrate(c){
   addShake(6);
   burst(c.x, c.y, '#f9e838', 28, {minSpd:80,maxSpd:280,minLife:0.3,maxLife:0.6});
   const r = Math.random();
-  if (r < 0.40){
+  if (r < 0.30){
     // a real choice, not a random stat silently bolted on behind your back
     pendingLevelUps++;
     levelUpReason = 'SUPPLY CACHE';
     spawnText(c.x, c.y-22, 'CACHE: UPGRADE', '#f9e838', 15, 1.3);
-  } else if (r < 0.66){
+  } else if (r < 0.60){
     spawnPickup(c.x + rand(-20,20), c.y + rand(-20,20));
     spawnText(c.x, c.y-22, 'CACHE: POWERUP', '#39ff88', 15, 1.3);
-  } else if (r < 0.86){
+  } else if (r < 0.84){
     healPlayer(player.maxHealth * 0.22);
     grantXP(Math.max(10, player.xpToNext*0.3));
     spawnText(c.x, c.y-22, 'CACHE: +HP +XP', '#39ff88', 15, 1.3);
@@ -2817,6 +3161,9 @@ function collectPickup(pk){
       freezeT = Math.max(freezeT, 4);
       Audio_.freeze();
       for (const e of enemies) if (!e.dead && !e.boss) e.stun = Math.max(e.stun, 4);
+      // Suspended bullets used to resume as one synchronized wall four seconds
+      // later. A CRYO BURST now shatters them, making the pickup an actual reset.
+      clearEnemyBullets(player.x, player.y, Infinity, '#7fd3ff');
       break;
     case 'nuke': {
       Audio_.nuke();
@@ -2827,6 +3174,7 @@ function collectPickup(pk){
          grunt's health bar. Riding hpScale means it always does what its name says. */
       const dmg = 180 + 46 * hpScale(spawnClock) / DIFF.hp;
       for (const e of enemies){
+        if (state !== 'playing') break;
         if (e.dead) continue;
         if (!inView(e.x, e.y, 200)) continue;
         damageEnemy(e, e.boss ? dmg*0.45 : dmg, false);
@@ -2854,7 +3202,7 @@ function spawnNode(){
     clamp(player.y + Math.sin(a)*r, 260, WORLD_H-260),
     150, 20);
   node = { x:s.x, y:s.y, r:125, prog:0, life:0, maxLife:95, spawnT:0, held:false, tick:0 };
-  showToast('OVERCHARGE NODE detected — hold the ring to siphon it');
+  showToast('OVERCHARGE NODE — hold the ring; kills and perfect dodges accelerate the siphon', 1);
   Audio_.warn();
 }
 
@@ -2869,7 +3217,9 @@ function updateNode(dt){
   node.held = inside;
 
   if (inside){
-    node.prog += dt / 9;
+    // Holding is the baseline; fighting well inside the ring is what finishes it
+    // quickly. Kills and perfect dodges add charge in their own handlers.
+    node.prog += dt / 12;
     node.tick -= dt;
     if (node.tick <= 0){ node.tick = 0.5; Audio_.nodeTick(); }
     // holding it is supposed to hurt
@@ -2903,10 +3253,16 @@ function updateNode(dt){
     node.prog = Math.max(0, node.prog - dt*0.045);   // decays slowly if you bail
   }
 
-  if (node.life > node.maxLife && node.prog < 0.02){
+  if (node.life > node.maxLife && !inside){
     node = null;
     nodeTimer = rand(20, 30);
   }
+}
+
+function addNodeCharge(amount){
+  if (!node || !node.held) return;
+  node.prog = Math.min(1, node.prog + amount);
+  node.tick = Math.min(node.tick, 0.08);
 }
 
 /* ============================= COMBAT ============================= */
@@ -2960,6 +3316,37 @@ function nearestEnemy(x, y, maxD, exclude){
     if (d < bestD){ bestD = d; best = e; }
   }
   return best;
+}
+
+function nearestFreshEnemy(x, y, maxD, visited){
+  let best = null, bestD = maxD*maxD;
+  gridQuery(x, y, maxD, qC);
+  for (let i=0;i<qC.length;i++){
+    const e = qC[i];
+    if (e.dead || visited.indexOf(e) >= 0) continue;
+    const d = dist2(x,y,e.x,e.y);
+    if (d < bestD){ bestD = d; best = e; }
+  }
+  return best;
+}
+
+const chainVisited = [];
+function triggerChain(first, dmg, jumps, range, falloff, blocked){
+  chainVisited.length = 0;
+  if (blocked) for (let i=0;i<blocked.length;i++) chainVisited.push(blocked[i]);
+  if (chainVisited.indexOf(first) < 0) chainVisited.push(first);
+  let from = first, hopDmg = dmg * falloff, used = 0;
+  while (used < jumps && state === 'playing'){
+    const next = nearestFreshEnemy(from.x, from.y, range, chainVisited);
+    if (!next) break;
+    spawnArc(from.x, from.y, next.x, next.y, '#c86bff');
+    chainVisited.push(next);
+    damageEnemy(next, hopDmg, false);
+    from = next;
+    hopDmg *= falloff;
+    used++;
+  }
+  return used;
 }
 
 /* Auto-aim picks the closest threat, nudges toward bosses/elites so your damage
@@ -3020,7 +3407,7 @@ function triggerExplosion(x, y, dmg, radius, excludeEnemy, color){
   const buf = explBufs[explDepth++];
   burst(x, y, color || '#ff8a2e', 9, {minSpd:80,maxSpd:280,minLife:0.2,maxLife:0.42,minSize:1.5,maxSize:3.2});
   gridQuery(x, y, radius, buf);
-  for (let i=0;i<buf.length;i++){
+  for (let i=0;i<buf.length && state === 'playing';i++){
     const e = buf[i];
     if (e.dead || e === excludeEnemy) continue;
     if (dist2(x,y,e.x,e.y) < radius*radius){
@@ -3064,7 +3451,11 @@ function estimatedDPS(p){
   let dps = weaponDPS(p);
   // splash and arcs ride along on every shot, so they scale the gun rather than add to it
   if (p.explosive) dps *= 1 + p.explosive.dmgPct * 0.75;
-  if (p.chain)     dps *= 1 + p.chain.chance * Math.min(p.chain.jumps, 3) * p.chain.falloff * 0.55;
+  if (p.chain){
+    let carry = 0, f = p.chain.falloff;
+    for (let i=0;i<Math.min(p.chain.jumps,4);i++){ carry += f; f *= p.chain.falloff; }
+    dps *= 1 + p.chain.chance * carry * 0.55;
+  }
   // independent sources add. Blades are rated at ~1.4 contacts/s against one body,
   // well under the 3.6 the 0.28s contact cooldown allows, because a blade only
   // overlaps a given target for a slice of its orbit.
@@ -3106,7 +3497,7 @@ function addUlt(n){
     u.wasReady = true;
     Audio_.ultReady();
     spawnText(player.x, player.y-46, 'OVERLOAD READY', '#f9e838', 18, 1.2);
-    if (overloadCount === 0) showToast('OVERLOAD READY — press E to detonate');
+    if (overloadCount === 0) showToast('OVERLOAD READY — press E to detonate', 1);
   }
 }
 
@@ -3130,12 +3521,15 @@ function triggerOverload(){
 
   gridQuery(player.x, player.y, radius, qA);
   for (let i=0;i<qA.length;i++){
+    if (state !== 'playing') break;
     const e = qA[i];
     if (e.dead) continue;
     if (dist2(player.x, player.y, e.x, e.y) < radius*radius){
       damageEnemy(e, e.boss ? dmg*0.4 : dmg, true);
     }
   }
+
+  if (state !== 'playing') return;
 
   // sweep the screen clear of incoming fire — this is the part that makes it a
   // real answer to a bullet-hell phase rather than just extra damage
@@ -3160,7 +3554,7 @@ function triggerOverload(){
 /* --- player weapon --- */
 function firePlayerWeapon(){
   const target = acquireTarget();
-  if (!target) return;
+  if (!target) return false;
   Audio_.shoot();
 
   // lead the shot so fast movers do not simply outrun your bullets
@@ -3198,10 +3592,9 @@ function firePlayerWeapon(){
     b.dmg = dmg;
     b.pierceLeft = player.pierce;
     b.life = 0;
-    // ricochet rounds need time to actually reach the arena walls
+    // multi-carom rounds need enough lifetime to cross a sparse arena
     b.maxLife = player.ricochet > 0 ? 3.6 : 2.4;
     b.ricochetLeft = player.ricochet || 0;
-    b.chainLeft = player.chain ? player.chain.jumps : 0;
     b.trailT = 0;
     b.drone = false;
     b.hits.length = 0;
@@ -3216,24 +3609,42 @@ function firePlayerWeapon(){
                   0.13, rand(1.6,3), SHOT_COLOR, 0, 0.86);
     }
   }
+  return true;
 }
 
-function damageEnemy(e, dmg, isCrit){
+function damageEnemy(e, dmg, isCrit, quiet){
   if (e.dead || dmg <= 0) return;
+  if (e.boss && e.phaseGate > 0) return;
   if (e.dr) dmg *= (1 - e.dr);
   if (player.bigGame && (e.boss || e.elite)) dmg *= (1 + player.bigGame);
   if (freezeT > 0 && !e.boss) dmg *= 1.3;          // frozen things shatter
   const cryo = player.cryo;
   if (cryo && cryo.shatter && e.slowT > 0) dmg *= 1.35;
 
+  const hpBefore = e.hp;
+  /* Boss phase gates are real beats, not labels. Clamp a hit at the next gate
+     and ignore the rest of that frame's volley; updateBoss releases the gate and
+     advances exactly one phase before damage can continue. */
+  if (e.boss && e.phases && e.phase < e.phases.length){
+    const gateHp = e.maxHp * e.phases[e.phase];
+    if (hpBefore > gateHp && hpBefore-dmg <= gateHp){
+      dmg = hpBefore-gateHp;
+      // Hold the threshold across multiple simulation ticks. Clearing it inside
+      // updateBoss() earlier in the same tick let a Nova in updatePlayer and a
+      // bullet later in updateBullets traverse two supposedly gated phases.
+      e.phaseGate = 0.18;
+    }
+  }
+  if (dmg <= 0) return;
   e.hp -= dmg;
-  e.hitFlash = 0.09;
+  if (!quiet) e.hitFlash = 0.09;
+  const dealt = Math.min(dmg, hpBefore);
 
   // Overload fills on the FRACTION of a target you removed, not on raw numbers,
   // so it charges at the same pace for a 13-damage Striker and a 32-damage
   // Reaper — the meter measures progress, not build strength.
-  damageDealt += dmg;
-  addUltFromDamage(clamp(dmg / e.maxHp, 0, 1) * (e.boss ? 35 : e.elite ? 4.5 : 1.6));
+  damageDealt += dealt;
+  addUltFromDamage(clamp(dealt / e.maxHp, 0, 1) * (e.boss ? 35 : e.elite ? 4.5 : 1.6));
 
   if (cryo){
     e.slowT = Math.max(e.slowT, cryo.dur);
@@ -3251,14 +3662,16 @@ function damageEnemy(e, dmg, isCrit){
     }
   }
 
-  burst(e.x, e.y, isCrit ? '#f9e838' : '#ffffff', isCrit ? 5 : 2,
-        {minSpd:60,maxSpd:180,minLife:0.14,maxLife:0.3,minSize:1.4,maxSize:2.6});
+  if (!quiet){
+    burst(e.x, e.y, isCrit ? '#f9e838' : '#ffffff', isCrit ? 5 : 2,
+          {minSpd:60,maxSpd:180,minLife:0.14,maxLife:0.3,minSize:1.4,maxSize:2.6});
+  }
 
   /* damage numbers: crits and bosses get priority, everything else is sampled,
      so the screen stays readable and the text pool never thrashes. Crits used to
      be exempt from the budget entirely — at five projectiles, ten shots a second
      and 60% crit that is thirty numbers a second fighting for ninety slots. */
-  if (isCrit){
+  if (!quiet && isCrit){
     if (dmgTextBudget > 0){
       dmgTextBudget--;
       spawnText(e.x, e.y-e.radius-4, Math.round(dmg)+'!', '#f9e838', 15, 0.5);
@@ -3272,14 +3685,14 @@ function damageEnemy(e, dmg, isCrit){
       hitStopCd = 0.16;
       hitStop = Math.max(hitStop, 0.022);
     }
-  } else if (e.boss){
+  } else if (!quiet && e.boss){
     spawnText(e.x + rand(-14,14), e.y-e.radius-4, String(Math.round(dmg)), '#ffffff', 12, 0.42);
-  } else if (dmgTextBudget > 0){
+  } else if (!quiet && dmgTextBudget > 0){
     dmgTextBudget--;
     spawnText(e.x + rand(-8,8), e.y-e.radius-4, String(Math.round(dmg)), '#cfe3f2', 11, 0.38);
   }
 
-  Audio_.hit();
+  if (!quiet) Audio_.hit();
   if (e.hp <= 0) killEnemy(e);
 }
 
@@ -3300,6 +3713,7 @@ function killEnemy(e){
 
   addScore(e.xp * 11 * comboMult());
   spawnGem(e.x, e.y, e.xp);
+  if (node && node.held) addNodeCharge(e.boss ? 0.12 : e.elite ? 0.045 : 0.014);
 
   if (player.lifesteal > 0 && player.lsBudget > 0){
     const amt = Math.min(player.lifesteal, player.lsBudget);
@@ -3310,7 +3724,7 @@ function killEnemy(e){
   if (e.splits){
     for (let i=0;i<2;i++){
       spawnEnemy('shard', { pos:{x:e.x+rand(-16,16), y:e.y+rand(-16,16)},
-                            hp: ENEMY_TYPES.shard.hp * hpScale(spawnClock) });
+                            hp: ENEMY_TYPES.shard.hp * hpScale(spawnClock), summoned:e.summoned });
     }
   }
   // a bomber always goes off — killing one in your face is a real mistake
@@ -3337,6 +3751,7 @@ function killEnemy(e){
   if (e.boss){
     bossAlive = false;
     bossKills++;
+    if (bossKills >= 3) unlockClass('reaper');
     if (bossRef === e) bossRef = null;
     // Bosses are the run's only named beats, and the old spacing pushed them
     // further apart the better you did — by the fifth kill you were waiting a
@@ -3465,7 +3880,7 @@ function retaliateBlast(){
   burst(player.x, player.y, '#39ff88', 26, {minSpd:140,maxSpd:420,minLife:0.25,maxLife:0.5});
   spawnArc(player.x-r, player.y, player.x+r, player.y, '#39ff88');
   gridQuery(player.x, player.y, r, qB);
-  for (let i=0;i<qB.length;i++){
+  for (let i=0;i<qB.length && state === 'playing';i++){
     const e = qB[i];
     if (!e.dead && dist2(player.x,player.y,e.x,e.y) < r*r) damageEnemy(e, player.retaliate, false);
   }
@@ -3533,12 +3948,13 @@ function perfectDodge(){
   if (player.dash.charges < player.dash.maxCharges){
     player.dash.timer = Math.max(0, player.dash.timer - 0.45);
   }
+  addNodeCharge(0.07);
   hitStop = Math.max(hitStop, 0.045);
   addShake(3);
   burst(player.x, player.y, '#f9e838', 12, {minSpd:90,maxSpd:280,minLife:0.2,maxLife:0.45});
   if (fresh) spawnText(player.x, player.y-38, 'PERFECT DODGE', '#f9e838', 17, 1.0);
   Audio_.dodge();
-  if (dodgeCount === 1) showToast('PERFECT DODGE — dash through enemy fire to SURGE your damage');
+  if (dodgeCount === 1) showToast('PERFECT DODGE — dash through enemy fire to SURGE your damage', 1);
 }
 
 /* ============================= UPDATE: PLAYER ============================= */
@@ -3605,7 +4021,7 @@ function updatePlayer(dt){
       }
     }
     if (d.dmg > 0){
-      gridQuery(player.x, player.y, player.radius + 72, qA);
+      gridQuery(player.x, player.y, player.radius + MAX_ENEMY_RADIUS + 14, qA);
       for (let i=0;i<qA.length;i++){
         const e = qA[i];
         if (e.dead || e.lastDashHit === d.seq) continue;
@@ -3678,9 +4094,11 @@ function updatePlayer(dt){
                      * (player.frenzyT > 0 ? 1.9 : 1)
                      * (player.overloadT > 0 ? 1.8 : 1);
   player.fireTimer -= dt;
-  if (player.fireTimer <= 0){
+  const shotInterval = 1 / Math.max(0.05, player.fireRate * fireRateMult);
+  let shotGuard = 0;
+  while (player.fireTimer <= 0 && shotGuard++ < 8){
     firePlayerWeapon();
-    player.fireTimer = 1 / Math.max(0.05, player.fireRate * fireRateMult);
+    player.fireTimer += shotInterval;
   }
 
   /* ---- combat drones ----
@@ -3691,8 +4109,10 @@ function updatePlayer(dt){
     const dr = player.drones;
     dr.ang += 1.05 * dt;
     dr.timer -= dt;
-    if (dr.timer <= 0){
-      dr.timer = 1 / Math.max(0.1, dr.rate * fireRateMult);
+    const droneInterval = 1 / Math.max(0.1, dr.rate * fireRateMult);
+    let droneGuard = 0;
+    while (dr.timer <= 0 && droneGuard++ < 4){
+      dr.timer += droneInterval;
       const sp = player.projectileSpeed * 0.85;
       const dmg = dr.dmg * playerDmgMult();
       for (let i=0;i<dr.count;i++){
@@ -3707,7 +4127,7 @@ function updatePlayer(dt){
         b.vx = Math.cos(ang)*sp; b.vy = Math.sin(ang)*sp;
         b.radius = 3.6; b.dmg = dmg;
         b.pierceLeft = dr.pierce; b.ricochetLeft = 0;
-        b.chainLeft = 0; b.life = 0; b.maxLife = 1.7;
+        b.life = 0; b.maxLife = 1.7;
         b.trailT = 0; b.drone = true;
         b.hits.length = 0;
       }
@@ -3722,7 +4142,7 @@ function updatePlayer(dt){
       const a = o.ang + (TAU/o.count)*i;
       const bx = player.x + Math.cos(a)*o.radius;
       const by = player.y + Math.sin(a)*o.radius;
-      gridQuery(bx, by, 70, qA);      // 70 covers a boss radius; 30 silently missed them
+      gridQuery(bx, by, MAX_ENEMY_RADIUS + 11, qA);
       for (let k=0;k<qA.length;k++){
         const e = qA[k];
         if (e.dead || e.orbitCd > 0) continue;
@@ -3739,7 +4159,7 @@ function updatePlayer(dt){
   if (player.nova){
     player.nova.timer -= dt;
     if (player.nova.timer <= 0){
-      player.nova.timer = player.nova.interval;
+      player.nova.timer += player.nova.interval;
       detonateNova(player.x, player.y, player.nova.dmg * surgeMult(), player.nova.radius);
     }
   }
@@ -3749,7 +4169,7 @@ function updatePlayer(dt){
     const g = player.gravity;
     g.timer -= dt;
     if (g.timer <= 0){
-      g.timer = g.interval;
+      g.timer += g.interval;
       burst(player.x, player.y, '#c86bff', 22, {minSpd:20,maxSpd:70,minLife:0.4,maxLife:0.75,minSize:1.5,maxSize:3});
       gridQuery(player.x, player.y, g.radius, qA);
       for (let i=0;i<qA.length;i++){
@@ -3820,7 +4240,7 @@ function detonateNova(x, y, dmg, radius){
   novaRings.push({ x, y, r:0, max:radius, life:0, maxLife:0.35 });
   if (novaRings.length > 8) novaRings.shift();
   gridQuery(x, y, radius, qA);
-  for (let i=0;i<qA.length;i++){
+  for (let i=0;i<qA.length && state === 'playing';i++){
     const e = qA[i];
     if (e.dead) continue;
     if (dist2(x,y,e.x,e.y) < radius*radius) damageEnemy(e, dmg, false);
@@ -3837,7 +4257,7 @@ const WINDUP = 0.45;
 
 function updateEnemies(dt){
   const n = enemies.length;   // cached: splitters push new shards mid-loop
-  for (let i=0;i<n;i++){
+  for (let i=0;i<n && state === 'playing';i++){
     const e = enemies[i];
     if (e.dead) continue;
 
@@ -3846,9 +4266,22 @@ function updateEnemies(dt){
     if (e.touchCd > 0) e.touchCd -= dt;
     if (e.orbitCd > 0) e.orbitCd -= dt;
 
+    // Recycle ordinary enemies the player has decisively left behind. Otherwise
+    // slow bodies on the far side of the world fill the cap and the local arena
+    // quietly stops spawning threats.
+    if (!e.boss && !e.elite && !inView(e.x,e.y,320)
+        && dist2(e.x,e.y,player.x,player.y) > 1650*1650){
+      e.farT += dt;
+      if (e.farT > 9){ e.dead = true; continue; }
+    } else e.farT = 0;
+
     if (e.burn > 0){
       e.burn -= dt;
-      damageEnemy(e, e.burnDps * dt, false);
+      e.burnTick -= dt;
+      if (e.burnTick <= 0){
+        e.burnTick += 0.125;
+        damageEnemy(e, e.burnDps * 0.125, false, true);
+      }
       if (e.dead) continue;
       if (Math.random() < dt*8) addParticle(e.x+rand(-8,8), e.y+rand(-8,8), rand(-15,15), rand(-50,-15), 0.4, rand(1.5,3), '#ff8a2e', 0, 0.95);
     }
@@ -3878,7 +4311,7 @@ function updateEnemies(dt){
        re-spread the moment they come into view.                                */
     if (!e.boss && inView(e.x, e.y, 220)){
       let sx = 0, sy = 0, cnt = 0;
-      gridQuery(e.x, e.y, e.radius*2 + 12, qA);
+      gridQuery(e.x, e.y, e.radius + MAX_ENEMY_RADIUS + 2, qA);
       for (let k=0;k<qA.length;k++){
         const o = qA[k];
         if (o === e || o.dead) continue;
@@ -3988,12 +4421,17 @@ function updateEnemies(dt){
       const moveScale = clamp((d - desired)/60, -1, 1);
       e.x += (dx/d) * espd * moveScale * dt;
       e.y += (dy/d) * espd * moveScale * dt;
-      e.fireTimer -= dt;
       e.aimAng = Math.atan2(dy,dx);
-      e.windup = clamp(1 - e.fireTimer/WINDUP, 0, 1);
-      if (e.fireTimer <= 0){
-        e.fireTimer = rand(1.7,2.5);
-        fireEnemyBullet(e, e.aimAng, 270, e.dmg, 5, FOE_SHOT);
+      if (d < 720){
+        e.fireTimer -= dt;
+        e.windup = clamp(1 - e.fireTimer/WINDUP, 0, 1);
+        if (e.fireTimer <= 0){
+          e.fireTimer += rand(1.7,2.5);
+          fireEnemyBullet(e, e.aimAng, 270, e.dmg, 5, FOE_SHOT);
+        }
+      } else {
+        e.windup = 0;
+        e.fireTimer = Math.max(e.fireTimer, 0.25);
       }
     }
     else {
@@ -4009,7 +4447,7 @@ function updateEnemies(dt){
         gridQuery(e.x, e.y, 200, qB);
         for (let k=0;k<qB.length;k++){
           const o = qB[k];
-          if (o.dead || o === e || o.boss) continue;
+          if (o.dead || o === e || o.boss || (o.eliteMod && o.eliteMod.heals)) continue;
           if (dist2(e.x,e.y,o.x,o.y) < 200*200){
             o.hp = Math.min(o.maxHp, o.hp + o.maxHp*0.06);
             if (Math.random() < 0.3) spawnArc(e.x, e.y, o.x, o.y, '#39ff88');
@@ -4077,7 +4515,12 @@ function bossPhaseShift(e){
 
 function updateBoss(e, dt, dx, dy, d){
   const enrageDmg = 1 + e.enrage*0.5;
-  const bspd = e.speed * e._slow;
+  let bspd = e.speed * e._slow;
+  // Bosses cannot be erased from the run by simply driving away. Beyond their
+  // intended fighting distance they catch up relative to the player's current
+  // build, while their normal close-range movement remains archetype-specific.
+  if (d > 1050) bspd = Math.max(bspd, player.speed*1.35);
+  else if (d > 700) bspd = Math.max(bspd, player.speed*0.92);
 
   // LEGION: an escort on a timer, independent of which boss is wearing the affix
   if (e.legion){
@@ -4088,16 +4531,25 @@ function updateBoss(e, dt, dx, dy, d){
       const types = availableTypes(spawnClock);
       for (let i=0;i<3;i++){
         const a = rand(0,TAU);
-        spawnEnemy(pick(types), { pos:{ x:e.x+Math.cos(a)*70, y:e.y+Math.sin(a)*70 } });
+        spawnEnemy(pick(types), { pos:{ x:e.x+Math.cos(a)*70, y:e.y+Math.sin(a)*70 }, summoned:true });
       }
     }
   }
 
   const frac = e.hp / e.maxHp;
   const ph = e.phases;
-  let wantPhase = 0;
-  for (let i=0;i<ph.length;i++) if (frac <= ph[i]) wantPhase = i+1;
-  if (wantPhase > e.phase){ e.phase = wantPhase; bossPhaseShift(e); }
+  if (e.phaseGate > 0){
+    e.phaseGate = Math.max(0, e.phaseGate-dt);
+    if (e.phaseGate <= 0){
+      e.phase = Math.min(ph.length, e.phase+1);
+      bossPhaseShift(e);
+    }
+  } else {
+    // Defensive fallback for restored/debug state: advance one beat at a time.
+    let wantPhase = 0;
+    for (let i=0;i<ph.length;i++) if (frac <= ph[i]) wantPhase = i+1;
+    if (wantPhase > e.phase){ e.phase++; bossPhaseShift(e); }
+  }
 
   if (e.bossType === 'juggernaut'){
     if (e.chargeState === 'idle'){
@@ -4142,7 +4594,7 @@ function updateBoss(e, dt, dx, dy, d){
       for (let i=0;i<cnt;i++){
         const a = (TAU/cnt)*i;
         spawnEnemy(Math.random() < 0.5 ? 'grunt' : 'runner',
-                   { pos:{x:e.x+Math.cos(a)*52, y:e.y+Math.sin(a)*52} });
+                   { pos:{x:e.x+Math.cos(a)*52, y:e.y+Math.sin(a)*52}, summoned:true });
       }
     }
     e.fireTimer -= dt;
@@ -4240,7 +4692,7 @@ function updateBoss(e, dt, dx, dy, d){
         const types = availableTypes(spawnClock);
         for (let i=0;i<4;i++){
           const a = (TAU/4)*i + rand(-0.3,0.3);
-          spawnEnemy(pick(types), { pos:{ x:e.x+Math.cos(a)*84, y:e.y+Math.sin(a)*84 } });
+          spawnEnemy(pick(types), { pos:{ x:e.x+Math.cos(a)*84, y:e.y+Math.sin(a)*84 }, summoned:true });
         }
       }
     }
@@ -4277,11 +4729,11 @@ function updateBoss(e, dt, dx, dy, d){
    most wants you to assemble was the build whose shots silently stopped landing.
    Stepping the flight in bites no larger than a small body closes it. The cap
    keeps the cost bounded; nothing legitimately moves fast enough to reach it. */
-const BULLET_STEP = 16, BULLET_MAX_SUBSTEPS = 5;
+const BULLET_STEP = 16, BULLET_MAX_SUBSTEPS = 8;
 
 function updateBullets(dt){
   const items = BULLETS.items;
-  for (let bi=0; bi<items.length; bi++){
+  for (let bi=0; bi<items.length && state === 'playing'; bi++){
     const b = items[bi];
     if (!b.active) continue;
     b.life += dt;
@@ -4292,26 +4744,12 @@ function updateBullets(dt){
     const sdt = dt / steps;
 
     let killed = false;
-    for (let sub = 0; sub < steps && !killed; sub++){
+    for (let sub = 0; sub < steps && !killed && state === 'playing'; sub++){
       b.x += b.vx*sdt; b.y += b.vy*sdt;
 
-      if (b.ricochetLeft > 0){
-        if (b.x < b.radius || b.x > WORLD_W-b.radius){
-          b.x = clamp(b.x, b.radius, WORLD_W-b.radius);
-          b.vx *= -1; b.ricochetLeft--;
-          burst(b.x, b.y, '#05f2f2', 4, {minSpd:40,maxSpd:140,minLife:0.15,maxLife:0.3,minSize:1.5,maxSize:2.5});
-        }
-        if (b.y < b.radius || b.y > WORLD_H-b.radius){
-          b.y = clamp(b.y, b.radius, WORLD_H-b.radius);
-          b.vy *= -1; b.ricochetLeft--;
-          burst(b.x, b.y, '#05f2f2', 4, {minSpd:40,maxSpd:140,minLife:0.15,maxLife:0.3,minSize:1.5,maxSize:2.5});
-        }
-      }
-
-      // margin must cover the LARGEST body we hit-test, not a typical one: a boss is
-      // radius 56, so a query of b.radius+34 could legitimately fail to return the
-      // thing the bullet is standing inside
-      gridQuery(b.x, b.y, b.radius + 62, qA);
+      // Query by the largest body, not a typical one; otherwise Architect grazes
+      // near a grid-cell edge become alignment-dependent misses.
+      gridQuery(b.x, b.y, b.radius + MAX_ENEMY_RADIUS, qA);
       for (let i=0;i<qA.length;i++){
         const e = qA[i];
         if (e.dead) continue;
@@ -4335,24 +4773,20 @@ function updateBullets(dt){
             e.y = clamp(e.y + (b.vy/bs)*kb, e.radius, WORLD_H-e.radius);
           }
           damageEnemy(e, hitDmg, isCrit);
+          if (state !== 'playing'){ killed = true; break; }
 
           if (player.explosive){
             triggerExplosion(b.x, b.y, hitDmg*player.explosive.dmgPct, player.explosive.radius, e);
           }
-          if (player.chain && b.chainLeft > 0 && Math.random() < player.chain.chance){
-            const next = nearestEnemy(e.x, e.y, player.chain.range, e);
-            if (next){
-              spawnArc(e.x, e.y, next.x, next.y, '#c86bff');
-              damageEnemy(next, hitDmg * player.chain.falloff, false);
-              b.chainLeft--;
-            }
+          if (player.chain && Math.random() < player.chain.chance){
+            triggerChain(e, hitDmg, player.chain.jumps, player.chain.range, player.chain.falloff, b.hits);
           }
 
           if (b.pierceLeft > 0){
             b.pierceLeft--;
           } else if (b.ricochetLeft > 0){
             // carom into a fresh target rather than expiring
-            const next = nearestEnemy(b.x, b.y, 340, e);
+            const next = nearestFreshEnemy(b.x, b.y, 340, b.hits);
             if (next){
               b.ricochetLeft--;
               const a = Math.atan2(next.y - b.y, next.x - b.x);
@@ -4360,7 +4794,6 @@ function updateBullets(dt){
               b.vx = Math.cos(a)*sp; b.vy = Math.sin(a)*sp;
               b.dmg *= 0.85;
               b.life = 0;
-              b.hits.length = 0; b.hits.push(e);
               spawnArc(b.x, b.y, next.x, next.y, SHOT_COLOR);
               burst(b.x, b.y, SHOT_COLOR, 4, {minSpd:40,maxSpd:150,minLife:0.12,maxLife:0.28,minSize:1.2,maxSize:2.4});
               break;
@@ -4386,9 +4819,21 @@ function updateBullets(dt){
   }
 }
 
+function clearEnemyBullets(x, y, radius, burstColor){
+  const items = EBULLETS.items;
+  const r2 = radius === Infinity ? Infinity : radius*radius;
+  for (let i=0;i<items.length;i++){
+    const b = items[i];
+    if (!b.active || dist2(b.x,b.y,x,y) > r2) continue;
+    if (inView(b.x,b.y,30)) burst(b.x, b.y, burstColor || b.color, 2,
+      {minSpd:35,maxSpd:130,minLife:0.12,maxLife:0.25,minSize:1.1,maxSize:2});
+    b.active = false;
+  }
+}
+
 function updateEnemyBullets(dt){
   const items = EBULLETS.items;
-  for (let i=0;i<items.length;i++){
+  for (let i=0;i<items.length && state === 'playing';i++){
     const b = items[i];
     if (!b.active) continue;
     if (freezeT > 0){ continue; }
@@ -4406,7 +4851,7 @@ function updateEnemyBullets(dt){
     b.x += b.vx*dt; b.y += b.vy*dt; b.life += dt;
 
     // pylons are real cover: they eat enemy fire
-    if (blockedByPylon(b.x, b.y, b.radius)){
+    if (absorbEnemyShot(b.x, b.y, b.radius)){
       burst(b.x, b.y, b.color, 5, {minSpd:40,maxSpd:150,minLife:0.15,maxLife:0.3,minSize:1.2,maxSize:2.4});
       b.active = false;
       continue;
@@ -4456,6 +4901,7 @@ function updateGems(dt){
     const pr = player.radius + g.radius + 6;
     if (d2 < pr*pr){
       g.active = false; g.magnetized = false;
+      liveGemCount = Math.max(0, liveGemCount-1);
       grantXP(g.value);
       addScore(g.value * 2);
       Audio_.pickup();
@@ -4478,7 +4924,7 @@ function updateCrates(dt){
 function updatePickups(dt){
   // keep the field bounded: oldest drops expire once there are too many
   if (pickups.length > 34) pickups.splice(0, pickups.length - 34);
-  for (let i=0;i<pickups.length;i++){
+  for (let i=0;i<pickups.length && state === 'playing';i++){
     const pk = pickups[i];
     pk.bob += dt*3.2;
     pk.life += dt;
@@ -4503,12 +4949,14 @@ function updatePickups(dt){
 
 /* ============================= UPDATE: FX ============================= */
 function updateFX(dt){
+  let live = false;
   const items = PARTS.items;
   for (let i=0;i<items.length;i++){
     const p = items[i];
     if (!p.active) continue;
     p.life += dt;
     if (p.life >= p.maxLife){ p.active = false; continue; }
+    live = true;
     if (p.grav) p.vy += p.grav*dt;
     p.x += p.vx*dt; p.y += p.vy*dt;
     const damp = Math.pow(p.drag, dt*60);
@@ -4520,6 +4968,7 @@ function updateFX(dt){
     if (!t.active) continue;
     t.life += dt;
     if (t.life >= t.maxLife){ t.active = false; continue; }
+    live = true;
     t.y += t.vy*dt; t.vy *= tDamp;
   }
   const aItems = ARCS.items;
@@ -4528,17 +4977,21 @@ function updateFX(dt){
     if (!a.active) continue;
     a.life += dt;
     if (a.life >= a.maxLife) a.active = false;
+    else live = true;
   }
   for (let i=novaRings.length-1;i>=0;i--){
     const r = novaRings[i];
     r.life += dt;
     r.r = r.max * (r.life/r.maxLife);
     if (r.life >= r.maxLife) novaRings.splice(i,1);
+    else live = true;
   }
   for (let i=dmgDirs.length-1;i>=0;i--){
     dmgDirs[i].life += dt;
     if (dmgDirs[i].life >= dmgDirs[i].maxLife) dmgDirs.splice(i,1);
+    else live = true;
   }
+  return live;
 }
 
 /* ============================= MAIN LOOP =============================
@@ -4549,7 +5002,14 @@ function updateFX(dt){
    and both climb back once there is headroom. Wide deadband + cooldown so it
    settles instead of oscillating.                                            */
 let lastT = performance.now();
-let frameSum = 0, frameN = 0, qualityCooldown = 0, lowHpT = 0;
+let frameSum = 0, frameDtSum = 0, frameN = 0, qualityCooldown = 0, lowHpT = 0;
+let cadenceBase = 0;
+const cadenceSeed = [];
+const FIXED_DT = 1/60, MAX_CATCHUP_STEPS = 15;
+let simAccumulator = 0, manualAccumulator = 0;
+let manualClock = !!window.__vt_pending;
+let lastWorkCost = 0.006;
+let idleState = '', idleHadFX = false;
 
 /* The CRT scanline layer is a full-screen `mix-blend-mode: multiply` div sitting
    over an element that repaints every frame, so the compositor re-blends the whole
@@ -4561,27 +5021,46 @@ function setScanlines(on){
   if (scanEl) scanEl.style.display = on ? '' : 'none';
 }
 
-function tuneQuality(dt){
-  if (qualityCooldown > 0){ qualityCooldown -= dt; return; }
-  frameSum += dt; frameN++;
-  if (frameN < 45) return;
+function tuneQuality(cost, realDt){
+  let renderDirty = false;
+  if (realDt > 0.003 && realDt < 0.1){
+    if (!cadenceBase){
+      cadenceSeed.push(realDt);
+      if (cadenceSeed.length >= 20){
+        const sorted = cadenceSeed.slice().sort((a,b)=>a-b);
+        cadenceBase = sorted[(sorted.length/2)|0];
+      }
+    }
+    else cadenceBase += (realDt-cadenceBase) * (realDt < cadenceBase ? 0.08 : 0.001);
+  }
+  if (qualityCooldown > 0){ qualityCooldown -= realDt; return false; }
+  frameSum += cost; frameDtSum += realDt; frameN++;
+  if (frameN < 45) return false;
   const avg = frameSum / frameN;
-  frameSum = 0; frameN = 0;
-  if (avg > 0.0225){                       // below ~44fps: shed work
+  const avgDt = frameDtSum / frameN;
+  frameSum = 0; frameDtSum = 0; frameN = 0;
+  // CPU submission cost alone misses GPU/compositor stalls. Compare cadence to
+  // this display's learned healthy baseline, so a real fall from 60→30Hz sheds
+  // work while a natively throttled 30Hz display is not punished for being 30Hz.
+  const cadenceBad = cadenceBase > 0 && avgDt > cadenceBase*1.30 + 0.001;
+  if (avg > 0.0175 || cadenceBad){
     if (fxScale > 0.4) { fxScale = Math.max(0.4, fxScale - 0.25); qualityCooldown = 1.5; }
     else if (qualityScale > 0.6){
       qualityScale = Math.max(0.6, qualityScale - 0.14); resize();
+      renderDirty = true;
       setScanlines(false);
       qualityCooldown = 2.5;
     }
-  } else if (avg < 0.0142){                // above ~70fps: take some back
+  } else if (avg < 0.0115 && (!cadenceBase || avgDt < cadenceBase*1.15 + 0.001)){
     if (qualityScale < 1){
       qualityScale = Math.min(1, qualityScale + 0.14); resize();
+      renderDirty = true;
       if (qualityScale >= 1) setScanlines(true);
       qualityCooldown = 3;
     }
     else if (fxScale < 1){ fxScale = Math.min(1, fxScale + 0.25); qualityCooldown = 2; }
   }
+  return renderDirty;
 }
 
 /* One simulation tick, lifted out of the frame loop.
@@ -4592,22 +5071,35 @@ function tuneQuality(dt){
    not by "however long the last frame took", which is what a simulation should be. */
 function stepWorld(gdt, rdt){
   dmgTextBudget = 5;
-  elapsed += gdt;
-  score += gdt * 40 * DIFF.score;
+  // The run clock is real survival time. Impact slow-motion changes motion, not
+  // how long the player actually survived or how soon the stated finale arrives.
+  elapsed += rdt;
+  score += rdt * 40 * DIFF.score;
   if (freezeT > 0) freezeT -= gdt;
 
-  gridClear();
-  for (let i=0;i<enemies.length;i++) if (!enemies[i].dead) gridInsert(enemies[i]);
-
   updateSpawning(gdt);
+  // Spawning can add an Architect or a fresh wave. Player abilities in this same
+  // tick must see them; rebuilding only before spawning let an Overload spend its
+  // full meter against an enemy that was absent from the grid until later.
+  rebuildEnemyGrid();
   updatePlayer(gdt);
+  if (state !== 'playing') return false;
   updateEnemies(gdt);
+  if (state !== 'playing') return false;
+  // Movement, knockback and singularities can cross grid cells. Projectile and
+  // AoE queries must see where enemies are now, not where the tick began.
+  rebuildEnemyGrid();
   updateBullets(gdt);
+  if (state !== 'playing') return false;
   updateEnemyBullets(gdt);
+  if (state !== 'playing') return false;
   updateGems(gdt);
   updateCrates(gdt);
   updatePickups(gdt);
+  if (state !== 'playing') return false;
   updateHazards(gdt);
+  if (state !== 'playing') return false;
+  updatePylons(gdt);
   updateCamera(gdt);
 
   // the danger vignette is easy to tune out mid-fight; a pulse in your ears is
@@ -4624,41 +5116,95 @@ function stepWorld(gdt, rdt){
 
   Audio_.setIntensity(bossAlive ? 1 : clamp(enemies.length/60, 0.15, 0.9));
   updateHUD();
+  return true;
 }
+
+function simulationTick(rdt){
+  let gdt = rdt;
+  if (hitStopCd > 0) hitStopCd = Math.max(0, hitStopCd-rdt);
+  if (hitStop > 0){
+    const slow = Math.min(hitStop, rdt);
+    hitStop = Math.max(0, hitStop-slow);
+    // Only the authored portion of the expiration tick is slowed. A 22ms crit
+    // stop should not round up to two complete 16.7ms slow-motion frames.
+    gdt = slow*0.14 + (rdt-slow);
+  }
+  if (state === 'playing') stepWorld(gdt, rdt);
+  updateFX(gdt);
+  if (shakeMag > 0){ shakeT += rdt; shakeMag = Math.max(0, shakeMag-rdt*26); }
+}
+
+/* Deterministic stepping for automated play-tests and debugging. The regular rAF
+   loop stops advancing the simulation as soon as this hook is used, so one call
+   means exactly the requested number of fixed 60 Hz ticks. */
+window.advanceTime = ms => {
+  manualClock = true;
+  simAccumulator = 0;
+  if (state === 'playing') manualAccumulator += Math.max(0, Number(ms) || 0) / 1000;
+  else manualAccumulator = 0;
+  while (manualAccumulator + 1e-10 >= FIXED_DT && state === 'playing'){
+    simulationTick(FIXED_DT);
+    manualAccumulator -= FIXED_DT;
+  }
+  if (state !== 'playing') manualAccumulator = 0;
+  render();
+  canvasDirty = false;
+};
 
 function loop(now){
   requestAnimationFrame(loop);
+  const workStart = performance.now();
+  pollGamepadMenus();
 
   // Self-correcting viewport. A `resize` listener alone is not enough: mobile
   // browsers collapse the URL bar without always firing one, and the canvas is
   // then left letterboxed against a stale height. One comparison a frame.
-  if (window.innerWidth !== viewW || window.innerHeight !== viewH) resize();
+  const viewportStale = window.innerWidth !== viewW || window.innerHeight !== viewH;
+  if (viewportStale) resize();
 
   let dt = (now - lastT) / 1000;
   lastT = now;
   if (!(dt > 0)) dt = 0.016;
-  if (dt > 0.05) dt = 0.05;
+  if (dt > 0.25) dt = 0.25;
 
-  // impact frames: brief slow-motion on crits, big kills and taking a hit
-  let gdt = dt;
-  if (hitStopCd > 0) hitStopCd -= dt;
-  if (hitStop > 0){
-    hitStop = Math.max(0, hitStop - dt);
-    gdt = dt * 0.14;
+  let didTick = false, fxLive = false;
+  if (!manualClock){
+    if (state === 'playing'){
+      simAccumulator = Math.min(simAccumulator+dt, FIXED_DT*MAX_CATCHUP_STEPS);
+      let steps = 0;
+      while (simAccumulator >= FIXED_DT && steps++ < MAX_CATCHUP_STEPS && state === 'playing'){
+        simulationTick(FIXED_DT);
+        simAccumulator -= FIXED_DT;
+        didTick = true;
+      }
+      if (state !== 'playing') simAccumulator = 0;
+    } else {
+      simAccumulator = 0;
+      // Let the last sparks settle behind overlays without advancing gameplay.
+      fxLive = updateFX(Math.min(dt,0.05));
+      if (shakeMag > 0){ shakeT += dt; shakeMag = Math.max(0, shakeMag-dt*26); }
+      fxLive = fxLive || shakeMag > 0;
+    }
   }
-
-  if (state === 'playing') stepWorld(gdt, dt);
-
-  updateFX(gdt);
-  if (shakeMag > 0){ shakeT += dt; shakeMag = Math.max(0, shakeMag - dt*26); }
 
   // Tune BEFORE drawing. tuneQuality can call resize(), and assigning
   // canvas.width wipes the backing store — running it after render() meant every
   // single quality step flashed one fully black frame, which lands precisely when
   // the device is already struggling and you are most likely to notice.
-  if (state === 'playing') tuneQuality(dt);
+  let qualityDirty = false;
+  if (state === 'playing' && !manualClock) qualityDirty = tuneQuality(lastWorkCost, dt);
 
-  render();
+  const stateChanged = state !== idleState;
+  const shouldRender = state === 'playing'
+    ? (canvasDirty || stateChanged || qualityDirty || (!manualClock && didTick))
+    : (canvasDirty || stateChanged || (!manualClock && (fxLive || idleHadFX)));
+  if (shouldRender){
+    render();
+    canvasDirty = false;
+    lastWorkCost = (performance.now()-workStart)/1000;
+  }
+  idleState = state;
+  idleHadFX = state !== 'playing' && fxLive;
 }
 
 /* ============================= RENDER ============================= */
@@ -4702,6 +5248,33 @@ function drawBackground(){
   }
 }
 
+function drawLandmarks(){
+  ctx.save();
+  for (let i=0;i<LANDMARKS.length;i++){
+    const l = LANDMARKS[i];
+    if (!inView(l.x,l.y,l.r+80)) continue;
+    const pulse = 0.5 + 0.5*Math.sin(elapsed*0.9+i);
+    ctx.strokeStyle = withA(l.color, 0.12 + pulse*0.05);
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(l.x,l.y,l.r,0,TAU); ctx.stroke();
+    ctx.strokeStyle = withA(l.color, 0.075);
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(l.x,l.y,l.r*0.58,0,TAU); ctx.stroke();
+    ctx.beginPath();
+    for (let k=0;k<l.spokes;k++){
+      const a=(TAU/l.spokes)*k;
+      ctx.moveTo(l.x+Math.cos(a)*l.r*0.62,l.y+Math.sin(a)*l.r*0.62);
+      ctx.lineTo(l.x+Math.cos(a)*l.r,l.y+Math.sin(a)*l.r);
+    }
+    ctx.stroke();
+    ctx.fillStyle = withA(l.color,0.28);
+    ctx.font = '700 10px Orbitron, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(l.name,l.x,l.y+l.r+22);
+  }
+  ctx.restore();
+}
+
 function drawPylons(){
   for (let i=0;i<pylons.length;i++){
     const p = pylons[i];
@@ -4717,7 +5290,9 @@ function drawPylons(){
     ctx.closePath();
     ctx.fillStyle = 'rgba(9,12,28,0.94)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(5,242,242,0.45)';
+    const disabled = p.overloadT > 0;
+    ctx.strokeStyle = disabled ? 'rgba(255,138,46,0.52)'
+                    : (p.flashT > 0 ? 'rgba(255,255,255,0.82)' : 'rgba(5,242,242,0.45)');
     ctx.lineWidth = 2.5;
     ctx.stroke();
     ctx.beginPath();
@@ -4727,9 +5302,19 @@ function drawPylons(){
       if (k) ctx.lineTo(px,py); else ctx.moveTo(px,py);
     }
     ctx.closePath();
-    ctx.strokeStyle = 'rgba(200,107,255,0.3)';
+    ctx.strokeStyle = disabled ? 'rgba(255,46,166,0.24)' : 'rgba(200,107,255,0.3)';
     ctx.lineWidth = 1.5;
     ctx.stroke();
+    if (disabled){
+      ctx.globalAlpha = 0.45 + 0.25*Math.sin(elapsed*18);
+      ctx.strokeStyle = '#ff8a2e'; ctx.lineWidth = 2;
+      ctx.setLineDash([7,7]);
+      ctx.beginPath(); ctx.arc(0,0,p.r+7,0,TAU); ctx.stroke();
+      ctx.setLineDash([]);
+    } else if (p.charge > 0){
+      ctx.strokeStyle = '#f9e838'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0,0,p.r+6,-Math.PI/2,-Math.PI/2+TAU*(p.charge/6)); ctx.stroke();
+    }
     ctx.restore();
   }
 }
@@ -4840,6 +5425,13 @@ function buildMiniStatic(size){
     g.rect(p.x*scale - 1, p.y*scale - 1, 2, 2);
   }
   g.fill();
+  for (let i=0;i<LANDMARKS.length;i++){
+    const l=LANDMARKS[i];
+    g.fillStyle=l.color;
+    g.globalAlpha=0.55;
+    g.fillRect(l.x*scale-1.5,l.y*scale-1.5,3,3);
+  }
+  g.globalAlpha=1;
   g.strokeStyle = 'rgba(5,242,242,0.4)';
   g.lineWidth = 1;
   g.strokeRect(0.5, 0.5, px-1, px-1);
@@ -4867,7 +5459,9 @@ function drawMinimap(){
      them, so the Overload pad sat invisibly on top of the minimap. The ability
      readout column is hidden on touch anyway, which leaves bottom-left free. */
   const mx = usingTouch ? pad : W - mapSize - pad;
-  const my = H - mapSize - pad;
+  // A floating stick is normally planted bottom-left. Keep the touch map above
+  // that interaction zone instead of letting the two occupy the same pixels.
+  const my = usingTouch ? Math.max(76, Math.min(124, H-mapSize-pad)) : H - mapSize - pad;
   const scale = mapSize / WORLD_W;
   ctx.save();
   if (!miniStatic || miniStaticSize !== mapSize) buildMiniStatic(mapSize);
@@ -4919,6 +5513,7 @@ function render(){
   }
 
   drawBackground();
+  drawLandmarks();
   drawNode();
   drawHazards();
   drawPylons();
@@ -5101,6 +5696,21 @@ function render(){
     drawGlow(e.x, e.y, e.radius, e.color, 1, e.shape);
     if (e.hitFlash > 0) drawGlow(e.x, e.y, e.radius, '#ffffff', clamp(e.hitFlash/0.09,0,1)*0.6, e.shape);
 
+    // The highlighted target makes the movement→aim relationship visible. Auto
+    // fire should feel assisted, never arbitrary.
+    if (e === stickyTarget){
+      const rr = e.radius + 12 + Math.sin(elapsed*7)*1.5;
+      ctx.save();
+      ctx.globalAlpha = e.boss ? 0.82 : 0.58;
+      ctx.strokeStyle = player.classColor;
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([5,7]);
+      ctx.lineDashOffset = -elapsed*18;
+      ctx.beginPath(); ctx.arc(e.x,e.y,rr,0,TAU); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
     if (freezeT > 0 && !e.boss){
       ctx.save();
       ctx.globalAlpha = 0.5;
@@ -5185,7 +5795,7 @@ function render(){
   /* ---- player ---- */
   ctx.save();
   if (player.invT > 0 && Math.floor(player.invT*20) % 2 === 0) ctx.globalAlpha = 0.45;
-  drawGlow(player.x, player.y, player.radius, player.hitFlashT > 0 ? '#ffffff' : player.classColor, 1, 'diamond');
+  drawGlow(player.x, player.y, player.radius, player.hitFlashT > 0 ? '#ffffff' : player.classColor, 1, player.classShape);
   // the barrel kicks back on every shot: a static line made an auto-cannon read
   // as emitting bullets rather than firing them
   const ax = Math.cos(player.aim), ay = Math.sin(player.aim);
@@ -5229,7 +5839,7 @@ function render(){
     for (let i=3;i>=1;i--){
       drawGlow(player.x - player.dash.dirX*24*i,
                player.y - player.dash.dirY*24*i,
-               player.radius*(1 - 0.17*i), player.classColor, 0.34 - 0.08*i, 'diamond');
+               player.radius*(1 - 0.17*i), player.classColor, 0.34 - 0.08*i, player.classShape);
     }
   }
 
@@ -5380,12 +5990,40 @@ const hudPrev = { hp:-1, hpTxt:'', xp:-1, lvl:-1, time:'', score:'', kills:-1, w
                   shield:-1, combo:'', boss:'', bossHp:-1, buffs:'', dash:-1, dashMax:-1, vig:'',
                   ult:-1, ultReady:-1 };
 
-let toastTimer = null;
-function showToast(msg){
-  hudEls.toast.textContent = msg;
+let toastTimer = null, toastFadeTimer = null, toastBusy = false, toastQueue = [];
+function presentToast(item){
+  toastBusy = true;
+  hudEls.toast.dataset.priority = item.priority;
+  hudEls.toast.textContent = item.msg;
   hudEls.toast.style.opacity = '1';
+  toastTimer = setTimeout(() => {
+    hudEls.toast.style.opacity = '0';
+    toastFadeTimer = setTimeout(() => {
+      toastBusy = false;
+      if (toastQueue.length) presentToast(toastQueue.shift());
+    }, 360);
+  }, item.priority >= 2 ? 3000 : 2350);
+}
+function showToast(msg, priority){
+  const item = { msg, priority:priority||0 };
+  if (toastBusy){
+    if (!toastQueue.some(x => x.msg === msg)){
+      toastQueue.push(item);
+      toastQueue.sort((a,b) => b.priority-a.priority);
+      if (toastQueue.length > 5) toastQueue.length = 5;
+    }
+    return;
+  }
+  presentToast(item);
+}
+function clearToasts(){
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { hudEls.toast.style.opacity = '0'; }, 2600);
+  if (toastFadeTimer) clearTimeout(toastFadeTimer);
+  toastTimer = toastFadeTimer = null;
+  toastBusy = false;
+  toastQueue.length = 0;
+  hudEls.toast.textContent = '';
+  hudEls.toast.style.opacity = '0';
 }
 
 function updateHUD(){
@@ -5410,7 +6048,7 @@ function updateHUD(){
 
   const tstr = fmtTime(elapsed);
   if (tstr !== hudPrev.time){ hudEls.timeVal.textContent = tstr; hudPrev.time = tstr; }
-  const sstr = fmtNum(score);
+  const sstr = fmtNum(Math.floor(score/10)*10);
   if (sstr !== hudPrev.score){ hudEls.scoreVal.textContent = sstr; hudPrev.score = sstr; }
   if (killCount !== hudPrev.kills){ hudEls.killVal.textContent = killCount; hudPrev.kills = killCount; }
   if (threatLevel !== hudPrev.wave){ hudEls.waveVal.textContent = threatLevel; hudPrev.wave = threatLevel; }
@@ -5459,12 +6097,9 @@ function updateHUD(){
   /* danger vignette */
   const hpRatio = player.health/player.maxHealth;
   const vigOn = hpRatio < 0.32 ? 'on' : 'off';
-  if (vigOn === 'on'){
-    hudEls.vignette.style.boxShadow = 'inset 0 0 ' + (140 + Math.sin(elapsed*10)*20) + 'px rgba(255,20,60,' + (0.35 + (0.32-hpRatio)) + ')';
-    hudPrev.vig = 'on';
-  } else if (hudPrev.vig !== 'off'){
-    hudEls.vignette.style.boxShadow = 'inset 0 0 160px rgba(255,20,60,0)';
-    hudPrev.vig = 'off';
+  if (vigOn !== hudPrev.vig){
+    hudEls.vignette.classList.toggle('on', vigOn === 'on');
+    hudPrev.vig = vigOn;
   }
 
   /* combo */
@@ -5537,8 +6172,8 @@ function updateHUD(){
     if (bsk >= 5) html += '<div class="buffChip" style="color:#ff2ea6">💢 BERSERK +' + bsk + '%</div>';
     if (freezeT > 0) html += '<div class="buffChip" style="color:#7fd3ff">❄ FROZEN ' + Math.ceil(freezeT) + 's</div>';
     if (node && node.held) html += '<div class="buffChip" style="color:#39ff88">◎ SIPHONING ' + Math.round(node.prog*100) + '%</div>';
-    // the finale waits for any boss already in play, so once the clock is up the
-    // honest readout is "imminent" — a countdown frozen at 00:00 reads as a bug
+    // The final protocol overrides a routine boss at zero, so "imminent" appears
+    // only for the fraction of a tick between the clock and the spawn transition.
     if (showFinal) html += '<div class="buffChip" style="color:' + (finalIn < 30 ? '#f9e838' : '#c86bff') + '">◆ ARCHITECT '
       + (finalIn > 0 ? fmtTime(finalIn) : 'IMMINENT') + '</div>';
     if (!bossAlive && bossIn < 900) html += '<div class="buffChip" style="color:' + (bossIn < 10 ? '#ff2ea6' : '#8fb6d6') + '">☠ BOSS IN ' + Math.ceil(bossIn) + 's</div>';
@@ -5560,6 +6195,59 @@ const classGrid      = document.getElementById('classGrid');
 const statsPanelContent = document.getElementById('statsPanelContent');
 
 let newUnlocks = [];
+let pauseConfirmId = '', pauseConfirmTimer = null;
+
+/* aria-modal is a promise that covered controls are unavailable. Make that true
+   for pointer, keyboard and assistive-tech users, and keep Tab cycling inside the
+   visible dialog instead of falling through to the HUD behind it. */
+function coverGameSurface(covered){
+  hud.toggleAttribute('inert', covered);
+  canvas.toggleAttribute('inert', covered);
+  if (covered){
+    hud.setAttribute('aria-hidden','true');
+    canvas.setAttribute('aria-hidden','true');
+  } else {
+    hud.removeAttribute('aria-hidden');
+    canvas.removeAttribute('aria-hidden');
+  }
+}
+
+function modalFocusables(screen){
+  return [...screen.querySelectorAll('button:not(:disabled), [role="button"][tabindex="0"], a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')]
+    .filter(el => !el.classList.contains('hidden') && el.getClientRects().length > 0);
+}
+
+function trapModalTab(e){
+  if (e.key !== 'Tab' || e.currentTarget.classList.contains('hidden')) return;
+  const items = modalFocusables(e.currentTarget);
+  if (!items.length){ e.preventDefault(); return; }
+  const first = items[0], last = items[items.length-1];
+  if (e.shiftKey && (document.activeElement === first || !e.currentTarget.contains(document.activeElement))){
+    e.preventDefault(); last.focus();
+  } else if (!e.shiftKey && (document.activeElement === last || !e.currentTarget.contains(document.activeElement))){
+    e.preventDefault(); first.focus();
+  }
+}
+for (const screen of [pauseScreen, levelupScreen, statsScreen, gameoverScreen]) screen.addEventListener('keydown', trapModalTab);
+
+function resetPauseConfirm(){
+  pauseConfirmId = '';
+  if (pauseConfirmTimer) clearTimeout(pauseConfirmTimer);
+  pauseConfirmTimer = null;
+  const retry = document.getElementById('retryFromPauseBtn');
+  const abandon = document.getElementById('restartFromPauseBtn');
+  if (retry){ retry.textContent = '⟲ RESTART RUN'; retry.classList.remove('danger-confirm'); }
+  if (abandon){ abandon.textContent = '◀ ABANDON RUN'; abandon.classList.remove('danger-confirm'); }
+}
+
+function confirmPauseAction(id, button, prompt, action){
+  if (pauseConfirmId === id){ resetPauseConfirm(); action(); return; }
+  resetPauseConfirm();
+  pauseConfirmId = id;
+  button.textContent = prompt;
+  button.classList.add('danger-confirm');
+  pauseConfirmTimer = setTimeout(resetPauseConfirm, 2600);
+}
 
 function unlockClass(id){
   const c = CLASSES.find(x => x.id === id);
@@ -5571,6 +6259,9 @@ function unlockClass(id){
 }
 
 function resetGame(){
+  clearToasts();
+  simAccumulator = 0;
+  manualAccumulator = 0;
   DIFF = diffById(selectedDifficulty);
   const cls = classById(selectedClass);
   player = newPlayer(cls);
@@ -5579,14 +6270,18 @@ function resetGame(){
   stickyTarget = null; retargetT = 0; lowHpT = 0;
   seenTypes = {}; pressureSmooth = 1; retaliating = false;
   for (const pool of [PARTS, BULLETS, EBULLETS, GEMS, TEXTS, ARCS]){
-    for (let i=0;i<pool.items.length;i++){ pool.items[i].active = false; pool.items[i].magnetized = false; }
+    for (let i=0;i<pool.items.length;i++){
+      pool.items[i].active = false;
+      if (pool === GEMS) pool.items[i].magnetized = false;
+    }
     pool.ptr = 0;
   }
+  liveGemCount = 0;
   elapsed = 0; spawnClock = 0; killCount = 0; score = 0;
   comboCount = 0; comboTimer = 0; bestCombo = 0; threatLevel = 1;
   shakeMag = 0; shakeT = 0; shakeAng = 0; hitStop = 0; freezeT = 0; contactGrace = 0;
   dodgeCount = 0;
-  bossSpawnedCount = 0; bossKills = 0; nextBossTime = 55; bossAlive = false; bossRef = null;
+  bossSpawnedCount = 0; bossKills = 0; nextBossTime = 55; bossAlive = false; bossRef = null; bossCycle = {};
   nodesHeld = 0; node = null; nodeTimer = 26;
   overloadCount = 0; damageDealt = 0;
   spawnTimer = 0.8; pendingLevelUps = 0; crateSpawnTimer = 14;
@@ -5605,6 +6300,7 @@ function resetGame(){
 }
 
 function startGame(){
+  resetPauseConfirm();
   Audio_.unlock();
   resetGame();
   state = 'playing';
@@ -5614,11 +6310,18 @@ function startGame(){
   statsScreen.classList.add('hidden');
   levelupScreen.classList.add('hidden');
   hud.classList.remove('hidden');
+  coverGameSurface(false);
   dashQueued = false;
   ultQueued = false;
+  simAccumulator = 0;
+  manualAccumulator = 0;
+  lastT = performance.now();
   Audio_.click();
   Audio_.startMusic();
-  showToast('Move with WASD · SPACE to dash · your cannon fires itself');
+  canvas.focus({preventScroll:true});
+  showToast(usingTouch
+    ? 'DRAG on the left to move · tap ⇢ to dash through danger · ◉ detonates when charged'
+    : 'WASD / ARROWS move · SPACE dashes · follow the target ring · E overloads');
 }
 
 /* Beating the finale should not be the end of a good run — a score chaser wants to
@@ -5628,40 +6331,65 @@ function continueRun(){
   endless = true; wonRun = false;
   state = 'playing';
   lastT = performance.now();
+  simAccumulator = 0;
+  manualAccumulator = 0;
   gameoverScreen.classList.add('hidden');
   gameoverScreen.classList.remove('won');
   hud.classList.remove('hidden');
+  coverGameSurface(false);
   dashQueued = false; ultQueued = false;
+  player.health = Math.max(player.health, player.maxHealth*0.55);
+  player.invT = Math.max(player.invT, 2);
+  contactGrace = Math.max(contactGrace, 2);
+  player.dash.charges = player.dash.maxCharges;
   nextBossTime = elapsed + 30;
   Audio_.click();
   Audio_.startMusic();
+  canvas.focus({preventScroll:true});
   showToast('ENDLESS — the grid keeps sending them. Score is all that is left.');
 }
 
 function toMenu(){
+  resetPauseConfirm();
   state = 'start';
+  clearToasts();
   hud.classList.add('hidden');
   gameoverScreen.classList.add('hidden');
   gameoverScreen.classList.remove('won');
+  pauseScreen.classList.add('hidden');
+  statsScreen.classList.add('hidden');
+  levelupScreen.classList.add('hidden');
   startScreen.classList.remove('hidden');
+  coverGameSurface(true);
+  startScreen.scrollTop = 0;
   buildDiffRow();
   buildClassGrid();
   refreshBestLine();
   Audio_.stopMusic();
+  document.getElementById('startBtn').focus({preventScroll:false});
 }
 
 function togglePause(){
   if (state === 'playing'){
+    resetPauseConfirm();
     state = 'paused';
     dashQueued = false; ultQueued = false;
     Audio_.duck(true);
     pauseScreen.classList.remove('hidden');
+    coverGameSurface(true);
+    pauseScreen.scrollTop = 0;
+    document.getElementById('resumeBtn').focus({preventScroll:true});
   } else if (state === 'paused'){
+    resetPauseConfirm();
     state = 'playing';
     dashQueued = false; ultQueued = false;
     lastT = performance.now();
+    simAccumulator = 0;
+    manualAccumulator = 0;
     Audio_.duck(false);
     pauseScreen.classList.add('hidden');
+    coverGameSurface(false);
+    canvas.focus({preventScroll:true});
   }
 }
 
@@ -5675,6 +6403,9 @@ function showLevelUpCard(){
   document.getElementById('luHeader').textContent = levelUpReason;
   Audio_.duck(true);
   levelupScreen.classList.remove('hidden');
+  coverGameSurface(true);
+  levelupScreen.classList.remove('banish');
+  levelupScreen.scrollTop = 0;
   renderCards(rollOffers(3));
   Audio_.levelup();
   burst(player.x, player.y, '#f9e838', 36, {minSpd:80,maxSpd:320,minLife:0.4,maxLife:0.9});
@@ -5688,6 +6419,8 @@ function lockCardsBriefly(){
   cardLockTimer = setTimeout(() => {
     cardsWrap.classList.remove('locked');
     cardsWrap._locked = false;
+    const first = cardsWrap.querySelector('.card');
+    if (first) first.focus({preventScroll:true});
   }, 220);
 }
 
@@ -5722,6 +6455,7 @@ function renderCards(picks){
     const div = document.createElement('div');
     div.className = 'card ' + o.rarity.cls;
     div.tabIndex = 0;
+    div.setAttribute('role','button');
     div.style.color = u.color;
     const name = u.name(player);
     const desc = u.desc(player, o.stacks);
@@ -5743,7 +6477,9 @@ function renderCards(picks){
       (u.evo ? '' : '<div class="ckey">LV ' + Math.min(u.max, lvl + o.stacks) + (u.max < 999 ? ' / ' + u.max : '') + '</div>') +
       '<div class="ckeyNum">[ ' + (i+1) + ' ]</div>';
     div.addEventListener('click', () => pickCard(i));
-    div.addEventListener('keydown', ev => { if (ev.key === 'Enter') pickCard(i); });
+    div.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); pickCard(i); }
+    });
     cardsWrap.appendChild(div);
   });
   updateRerollUI();
@@ -5767,6 +6503,7 @@ function pickCard(idx){
 
   if (banishArmed){
     banishArmed = false;
+    levelupScreen.classList.remove('banish');
     if (player.banishes > 0 && !o.u.evo){
       player.banishes--;
       player.banished[o.u.id] = true;
@@ -5781,8 +6518,11 @@ function pickCard(idx){
   applyOffer(o);
   Audio_.click();
   levelupScreen.classList.add('hidden');
+  levelupScreen.classList.remove('banish');
   pendingLevelUps = Math.max(0, pendingLevelUps - 1);
   state = 'playing';
+  coverGameSurface(false);
+  canvas.focus({preventScroll:true});
   lastT = performance.now();
   if (pendingLevelUps > 0) showLevelUpCard(); else Audio_.duck(false);
 }
@@ -5796,11 +6536,14 @@ function skipLevelUp(){
   player.rerolls++;
   healPlayer(player.maxHealth * 0.08);
   banishArmed = false;
+  levelupScreen.classList.remove('banish');
   Audio_.click();
   spawnText(player.x, player.y-30, 'BANKED +1 REROLL', '#05f2f2', 15, 1.1);
   levelupScreen.classList.add('hidden');
   pendingLevelUps = Math.max(0, pendingLevelUps - 1);
   state = 'playing';
+  coverGameSurface(false);
+  canvas.focus({preventScroll:true});
   lastT = performance.now();
   if (pendingLevelUps > 0) showLevelUpCard(); else Audio_.duck(false);
 }
@@ -5809,12 +6552,14 @@ function doReroll(){
   if (state !== 'levelup' || player.rerolls <= 0) return;
   player.rerolls--;
   banishArmed = false;
+  levelupScreen.classList.remove('banish');
   Audio_.click();
   renderCards(rollOffers(3));
 }
 function armBanish(){
   if (state !== 'levelup' || player.banishes <= 0) return;
   banishArmed = !banishArmed;
+  levelupScreen.classList.toggle('banish', banishArmed);
   Audio_.click();
   updateRerollUI();
 }
@@ -5928,6 +6673,9 @@ function openStats(){
   statsPanelContent.innerHTML = buildStatsHTML();
   Audio_.duck(true);
   statsScreen.classList.remove('hidden');
+  coverGameSurface(true);
+  statsScreen.scrollTop = 0;
+  document.getElementById('closeStatsBtn').focus({preventScroll:true});
 }
 function closeStats(){
   if (state !== 'stats') return;
@@ -5936,11 +6684,17 @@ function closeStats(){
     statsFromPause = false;
     state = 'paused';
     pauseScreen.classList.remove('hidden');
+    coverGameSurface(true);
+    document.getElementById('loadoutFromPauseBtn').focus({preventScroll:true});
     return;
   }
   state = 'playing';
   lastT = performance.now();
+  simAccumulator = 0;
+  manualAccumulator = 0;
   Audio_.duck(false);
+  coverGameSurface(false);
+  canvas.focus({preventScroll:true});
 }
 function toggleStats(){
   if (state === 'playing') openStats();
@@ -5951,12 +6705,24 @@ function toggleStats(){
    One screen for both outcomes. A win is not a different set of facts about the run,
    it is the same facts with a different verdict on top — and keeping them in one
    place means the stat list can never drift between them. */
+function purgeActiveThreats(){
+  for (let i=0;i<enemies.length;i++) enemies[i].dead = true;
+  enemies.length = 0;
+  hazards.length = 0;
+  for (let i=0;i<BULLETS.n;i++) BULLETS.items[i].active = false;
+  clearEnemyBullets(player.x, player.y, Infinity, '#f9e838');
+  stickyTarget = null;
+  bossAlive = false;
+  bossRef = null;
+}
+
 function gameOver(won){
   if (state === 'gameover') return;
   state = 'gameover';
   wonRun = !!won;
 
   if (wonRun){
+    purgeActiveThreats();
     Audio_.victory();
     Audio_.setBossMode(false);
     burst(player.x, player.y, '#f9e838', 110, {minSpd:150,maxSpd:700,minLife:0.5,maxLife:1.3,minSize:2,maxSize:6});
@@ -6011,12 +6777,26 @@ function gameOver(won){
 
   document.getElementById('goBuildStrip').innerHTML = buildStripHTML();
 
+  const lockedGoals = [];
+  if (!isUnlocked(classById('warden'))) lockedGoals.push('WARDEN · reach level ' + Math.min(player.level,12) + '/12');
+  if (!isUnlocked(classById('reaper'))) lockedGoals.push('REAPER · defeat ' + Math.min(bossKills,3) + '/3 bosses');
+  if (!isUnlocked(classById('echo'))) lockedGoals.push('ECHO · destroy THE ARCHITECT');
+  document.getElementById('nextUnlock').textContent = lockedGoals.length
+    ? 'NEXT PILOT — ' + lockedGoals[0]
+    : 'ALL PILOTS UNLOCKED';
+
   const note = document.getElementById('unlockNote');
   note.classList.toggle('hidden', newUnlocks.length === 0);
   if (newUnlocks.length) note.textContent = '✦ PILOT UNLOCKED: ' + newUnlocks.join(', ') + ' ✦';
 
   hud.classList.add('hidden');
   gameoverScreen.classList.remove('hidden');
+  coverGameSurface(true);
+  gameoverScreen.scrollTop = 0;
+  setTimeout(() => {
+    const first = wonRun ? document.getElementById('continueBtn') : document.getElementById('restartBtn');
+    if (first && !first.classList.contains('hidden')) first.focus({preventScroll:false});
+  }, 50);
 }
 
 /* ---------- class select ---------- */
@@ -6028,7 +6808,11 @@ function buildClassGrid(){
     const unlocked = isUnlocked(c);
     const div = document.createElement('div');
     div.className = 'classCard' + (c.id === selectedClass ? ' sel' : '') + (unlocked ? '' : ' locked');
+    div.dataset.classId = c.id;
     div.tabIndex = unlocked ? 0 : -1;
+    div.setAttribute('role','button');
+    div.setAttribute('aria-pressed', c.id === selectedClass ? 'true' : 'false');
+    if (!unlocked) div.setAttribute('aria-disabled','true');
     div.innerHTML =
       '<div class="cIcon" style="color:' + c.color + ';text-shadow:0 0 14px ' + c.color + '">' + c.icon + '</div>' +
       '<div class="cTitle">' + (unlocked ? c.name : '???') + '</div>' +
@@ -6041,6 +6825,8 @@ function buildClassGrid(){
         Store.set('ns_class', c.id);
         Audio_.click();
         buildClassGrid();
+        const fresh = [...classGrid.children].find(el => el.dataset.classId === c.id);
+        if (fresh) fresh.focus({preventScroll:true});
       };
       div.addEventListener('click', choose);
       div.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); choose(); } });
@@ -6067,7 +6853,10 @@ function buildDiffRow(){
   DIFFICULTIES.forEach(d => {
     const el = document.createElement('div');
     el.className = 'diffBtn' + (d.id === DIFF.id ? ' sel' : '');
+    el.dataset.diffId = d.id;
     el.tabIndex = 0;
+    el.setAttribute('role','button');
+    el.setAttribute('aria-pressed', d.id === DIFF.id ? 'true' : 'false');
     el.style.color = d.color;
     el.style.borderColor = d.id === DIFF.id ? d.color : 'rgba(255,255,255,0.15)';
     el.innerHTML = '<div class="dName">' + d.name + '</div>'
@@ -6079,6 +6868,8 @@ function buildDiffRow(){
       Audio_.click();
       buildDiffRow();
       refreshBestLine();
+      const fresh = [...row.children].find(node => node.dataset.diffId === d.id);
+      if (fresh) fresh.focus({preventScroll:true});
     };
     el.addEventListener('click', choose);
     el.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); choose(); } });
@@ -6092,8 +6883,10 @@ document.getElementById('startBtn').addEventListener('click', startGame);
 document.getElementById('restartBtn').addEventListener('click', startGame);
 document.getElementById('continueBtn').addEventListener('click', continueRun);
 document.getElementById('menuBtn').addEventListener('click', toMenu);
-document.getElementById('restartFromPauseBtn').addEventListener('click', toMenu);
-document.getElementById('retryFromPauseBtn').addEventListener('click', startGame);
+const abandonBtn = document.getElementById('restartFromPauseBtn');
+const retryPauseBtn = document.getElementById('retryFromPauseBtn');
+abandonBtn.addEventListener('click', () => confirmPauseAction('abandon', abandonBtn, 'CONFIRM ABANDON?', toMenu));
+retryPauseBtn.addEventListener('click', () => confirmPauseAction('retry', retryPauseBtn, 'CONFIRM RESTART?', startGame));
 document.getElementById('resumeBtn').addEventListener('click', togglePause);
 // the loadout is where build decisions are checked, and it was reachable only from
 // a keyboard shortcut — invisible to anyone playing on a touchscreen
@@ -6109,28 +6902,114 @@ document.getElementById('banishBtn').addEventListener('click', armBanish);
 document.getElementById('skipBtn').addEventListener('click', skipLevelUp);
 document.getElementById('statsBtn').addEventListener('click', toggleStats);
 document.getElementById('pauseBtn').addEventListener('click', togglePause);
+document.getElementById('fullscreenBtn').addEventListener('click', toggleFullscreen);
 document.getElementById('closeStatsBtn').addEventListener('click', closeStats);
 
 const muteBtn = document.getElementById('muteBtn');
 function refreshMuteBtn(){ muteBtn.textContent = Audio_.isMuted() ? '🔇' : '🔊'; }
 muteBtn.addEventListener('click', () => { Audio_.toggleMute(); refreshMuteBtn(); });
 
-window.addEventListener('keydown', e => {
-  if (isTypingTarget(e.target)) return;
-  const k = e.key.toLowerCase();
-  if ((state === 'start' || state === 'gameover') && (k === ' ' || k === 'spacebar')) startGame();
-}, false);
-
 // first pointer/key anywhere satisfies the browser's audio autoplay gesture requirement
 ['pointerdown','keydown','touchstart'].forEach(ev =>
   window.addEventListener(ev, () => Audio_.unlock(), { once:true, passive:true }));
 
-if ('ontouchstart' in window) armTouchUI();
+if (matchMedia('(pointer:coarse)').matches && navigator.maxTouchPoints > 0) armTouchUI();
+
+function renderGameToText(){
+  if (!player) return JSON.stringify({
+    mode:state,
+    coordinates:'world pixels; origin top-left; +x right, +y down',
+    selectedPilot:selectedClass,
+    difficulty:DIFF.id,
+  });
+  const visible = enemies.filter(e => !e.dead && inView(e.x,e.y,120))
+    .sort((a,b) => dist2(a.x,a.y,player.x,player.y)-dist2(b.x,b.y,player.x,player.y))
+    .slice(0,16).map(e => ({
+      type:foeLabel(e), x:Math.round(e.x), y:Math.round(e.y),
+      hp:Math.max(0,Math.round(e.hp)), maxHp:Math.round(e.maxHp),
+      state:e.fuse >= 0 ? 'fusing' : e.windup > 0 ? 'aiming'
+        : ((e.lancer || e.bossType === 'juggernaut') ? e.chargeState : 'active'),
+    }));
+  const threats = [];
+  for (let i=0;i<EBULLETS.n && threats.length<14;i++){
+    const b=EBULLETS.items[i];
+    if (b.active && inView(b.x,b.y,30)) threats.push({x:Math.round(b.x),y:Math.round(b.y),r:b.radius,homing:b.homing});
+  }
+  const visibleGems = [];
+  for (let i=0;i<GEMS.n && visibleGems.length<12;i++){
+    const g=GEMS.items[i];
+    if (g.active && inView(g.x,g.y,50)) visibleGems.push({x:Math.round(g.x),y:Math.round(g.y),value:g.value,magnetized:!!g.magnetized});
+  }
+  const visiblePickups = pickups.filter(p => !p.dead && inView(p.x,p.y,60)).slice(0,8)
+    .map(p => ({x:Math.round(p.x),y:Math.round(p.y),kind:p.kind}));
+  const visibleCrates = crates.filter(c => !c.dead && inView(c.x,c.y,60)).slice(0,8)
+    .map(c => ({x:Math.round(c.x),y:Math.round(c.y)}));
+  const visibleHazards = hazards.filter(h => !h.dead && inView(h.x,h.y,h.r+30)).slice(0,8)
+    .map(h => ({x:Math.round(h.x),y:Math.round(h.y),r:h.r,dps:h.dps,remaining:Number(Math.max(0,h.maxLife-h.life).toFixed(1))}));
+  const nearbyPylons = pylons.filter(p => inView(p.x,p.y,p.r+40)).slice(0,12)
+    .map(p => ({x:Math.round(p.x),y:Math.round(p.y),r:Math.round(p.r),charge:p.charge,overloaded:Number(p.overloadT.toFixed(1))}));
+  const offers = state === 'levelup' && cardsWrap._picks
+    ? cardsWrap._picks.map((o,i) => ({slot:i+1,id:o.u.id,name:o.u.name(player),rarity:o.rarity.label,stacks:o.stacks})) : [];
+  return JSON.stringify({
+    mode:state,
+    coordinates:'world pixels; origin top-left; +x right, +y down',
+    elapsed:Number(elapsed.toFixed(2)), difficulty:DIFF.id, threatLevel,
+    player:{
+      pilot:player.classId, x:Math.round(player.x), y:Math.round(player.y),
+      hp:Number(player.health.toFixed(1)), maxHp:Math.round(player.maxHealth),
+      level:player.level, xp:Number(player.xp.toFixed(1)), xpToNext:player.xpToNext,
+      move:{x:Number(player.mvx.toFixed(2)),y:Number(player.mvy.toFixed(2))},
+      target:stickyTarget && !stickyTarget.dead ? foeLabel(stickyTarget) : null,
+      dash:{charges:player.dash.charges,max:player.dash.maxCharges,recharge:Number(Math.max(0,player.dash.timer).toFixed(2)),active:player.dash.t>0},
+      overload:Math.round(player.ult.charge), surge:Number(Math.max(0,player.surgeT).toFixed(2)),
+      score:Math.round(score), kills:killCount,
+    },
+    boss:bossRef && !bossRef.dead ? {name:bossRef.bossName,hp:Math.round(bossRef.hp),maxHp:Math.round(bossRef.maxHp),phase:bossRef.phase+1,phaseGate:Number(Number(bossRef.phaseGate||0).toFixed(2)),enrage:Number(bossRef.enrage.toFixed(2))} : null,
+    node:node ? {x:Math.round(node.x),y:Math.round(node.y),progress:Math.round(node.prog*100),held:node.held} : null,
+    counts:{enemies:enemies.reduce((n,e)=>n+(!e.dead?1:0),0),enemyBullets:EBULLETS.items.reduce((n,b)=>n+(b.active?1:0),0),crates:crates.length,pickups:pickups.length,gems:liveGemCount,hazards:hazards.length},
+    visibleEnemies:visible,
+    visibleEnemyBullets:threats,
+    visibleGems, visiblePickups, visibleCrates, visibleHazards, nearbyPylons,
+    offers,
+    resources:{rerolls:player.rerolls,banishes:player.banishes,pendingLevels:pendingLevelUps},
+  });
+}
+window.render_game_to_text = renderGameToText;
+
+// Narrow debug surface available only to the injected deterministic test client.
+if (manualClock){
+  window.__neon_test = {
+    spawn:(type,opts) => spawnEnemy(type,opts),
+    boss:type => spawnBoss(type),
+    upgrade:(id,stacks) => {
+      const u=upgradeById[id];
+      if (!u) return false;
+      applyOffer({u,stacks:stacks||1,rarity:RARITIES[0]});
+      return true;
+    },
+    setUlt:value => { player.ult.charge=clamp(value,0,player.ult.max); player.ult.wasReady=player.ult.charge>=player.ult.max; },
+    setHealth:value => { player.health=clamp(value,0,player.maxHealth); },
+    setElapsed:value => { elapsed=Math.max(0,value); },
+    player:() => player,
+    enemies:() => enemies,
+    bullets:() => BULLETS.items,
+    gems:() => GEMS.items,
+    gem:(x,y,value) => spawnGem(x,y,value),
+    clearGems:() => { for (const g of GEMS.items){ g.active=false; g.magnetized=false; } GEMS.ptr=0; liveGemCount=0; },
+    hitEnemy:(enemy,value) => damageEnemy(enemy,value,false),
+    hitPlayer:value => damagePlayer(value,true,player.x,player.y,'TEST PULSE'),
+    offers:() => rollOffers(3),
+    levelUp:() => { pendingLevelUps++; levelUpReason='TEST LEVEL'; showLevelUpCard(); },
+    clearThreats:purgeActiveThreats,
+    snapshot:renderGameToText,
+  };
+}
 
 refreshMuteBtn();
 buildDiffRow();
 buildClassGrid();
 refreshBestLine();
+coverGameSurface(true);
 resize();
 requestAnimationFrame(loop);
 })();
