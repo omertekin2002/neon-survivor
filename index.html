@@ -956,6 +956,7 @@ const SHAPES = {
   star:   [-5, -Math.PI/2],
   spike:  [-3, -Math.PI/2],   // three long barbs — reads as "this thing lunges"
   oct:    [8, Math.PI/8],
+  beacon: [-4, -Math.PI/2],   // four-point spark — the CONDUIT's transmitter
 };
 
 /* Three-level lookup (colour → shape → radius) rather than a composite string
@@ -1226,6 +1227,13 @@ const Audio_ = (() => {
       if (n-lastHitT < 60) return;
       lastHitT = n;
       tone(fxRand(220,280), 0.045, 'triangle', 0.042);
+    },
+    // a hit a CONDUIT tether soaked: lower and softer, so the ear learns it too
+    hitShielded(){
+      const n = performance.now();
+      if (n-lastHitT < 60) return;
+      lastHitT = n;
+      tone(fxRand(105,130), 0.07, 'sine', 0.036);
     },
     death(){
       const n = performance.now();
@@ -2604,6 +2612,17 @@ function applyOffer(o){
 }
 
 /* ============================= ENEMIES ============================= */
+/* CONDUIT tuning. Magenta is the one hue no archetype, shot, pickup or HUD bar
+   uses, so a magenta beam can only ever mean "this one is shielded". */
+const CONDUIT_COLOR = '#ff3dff';
+const CONDUIT_LINKS = 3;      // allies tethered at once
+const CONDUIT_RANGE = 220;    // a tether forms inside this...
+const CONDUIT_DROP  = 255;    // ...and snaps past this, so a jostled ally does not flicker
+const CONDUIT_DR    = 0.4;    // damage a tethered ally shrugs off
+// Every damage resistance (ARMORED, WARDED, tethers) combines multiplicatively
+// and the total is capped, so stacking them can never make anything immune.
+const DR_CAP = 0.6;
+
 const ENEMY_TYPES = {
   grunt:    { radius:16, speed:98,  hp:22, dmg:8,  xp:3, color:'#ff2ea6', shape:'circle' },
   runner:   { radius:10, speed:192, hp:12, dmg:6,  xp:2, color:'#f9e838', shape:'diamond' },
@@ -2629,6 +2648,13 @@ const ENEMY_TYPES = {
      field into terrain worth reading. */
   blight:   { radius:20, speed:76,  hp:52, dmg:11, xp:8, color:'#5b8cff', shape:'oct', sower:true,
               tip:'NEW THREAT — BLIGHT: seeds corrosive ground. Do not stand in the blue' },
+  /* CONDUIT — nothing in the roster asked WHICH TARGET FIRST: every body was
+     worth shooting in proportion to its threat, so auto-aim and spray was always
+     right. It hangs back and tethers the pack in front of it, and tethered allies
+     shrug off part of every hit until you cut the source. The body is fragile on
+     purpose: the answer is to aim at it, not to out-damage the shield. */
+  conduit:  { radius:15, speed:84,  hp:28, dmg:7,  xp:8, color:CONDUIT_COLOR, shape:'beacon', conduit:true,
+              tip:'NEW THREAT — CONDUIT: shields the enemies around it. Kill it first' },
 };
 
 // hard ceiling on live entities — past this the director escalates enemy QUALITY
@@ -2689,6 +2715,9 @@ const TYPE_UNLOCKS = [
   { t:124, add:['weaver','weaver'] },
   { t:168, add:['bomber','brute'] },
   { t:212, add:['lancer','lancer'] },
+  // one copy only: a support is worth killing because it is the exception in a
+  // pack. Boss fights slow this clock, so 240 lands around 4:50–5:15 of a run.
+  { t:240, add:['conduit'] },
   { t:262, add:['blight','shooter'] },
   { t:320, add:['bomber','weaver','lancer','brute'] },
 ];
@@ -2775,6 +2804,7 @@ function spawnEnemy(typeKey, opts){
     ranged: !!base.ranged, splits: !!base.splits,
     weaves: !!base.weaves, bomber: !!base.bomber,
     lancer: !!base.lancer, sower: !!base.sower,
+    conduit: !!base.conduit, links: base.conduit ? [] : null, linkT: 0.35, linkedTo: null,
     fireTimer: rand(0.5,1.8),
     hitFlash: 0, touchCd: 0, orbitCd: 0,
     stun: 0, burn: 0, burnDps: 0,
@@ -2800,6 +2830,56 @@ function spawnEnemy(typeKey, opts){
     burst(e.x, e.y, eliteMod.color, 18, {minSpd:60,maxSpd:220,minLife:0.3,maxLife:0.6});
   }
   return e;
+}
+
+/* ---------- CONDUIT tethers ----------
+   A tether has two ends: the conduit's `links` (what the beams draw) and the
+   ally's `linkedTo` (what the damage rule reads). Plenty of code retires an enemy
+   by just setting `dead` (recycling, fuses, purges), so nothing trusts the flag
+   alone: a tether only counts while both ends are alive. */
+function isLinked(e){
+  const c = e.linkedTo;
+  return !!c && !c.dead && !e.dead;
+}
+function dropTethers(c){
+  for (let k=0;k<c.links.length;k++) if (c.links[k].linkedTo === c) c.links[k].linkedTo = null;
+  c.links.length = 0;
+}
+function unlinkAlly(o){
+  const c = o.linkedTo;
+  o.linkedTo = null;
+  if (c && c.links){ const k = c.links.indexOf(o); if (k >= 0) c.links.splice(k, 1); }
+}
+const _linkCand = [];
+function updateConduit(c, dt){
+  for (let k=c.links.length-1;k>=0;k--){
+    const o = c.links[k];
+    if (o.dead || o.linkedTo !== c || dist2(c.x,c.y,o.x,o.y) > CONDUIT_DROP*CONDUIT_DROP){
+      if (o.linkedTo === c) o.linkedTo = null;
+      c.links.splice(k, 1);
+    }
+  }
+  c.linkT -= dt;
+  if (c.linkT > 0) return;
+  // Re-pick the nearest allies every second or so, so the shielded group shifts
+  // with the pack. Bosses are never shielded, and conduits never shield each
+  // other — otherwise two of them make an unkillable pair.
+  c.linkT = rand(1.1, 1.7);
+  dropTethers(c);
+  gridQuery(c.x, c.y, CONDUIT_RANGE, qB);
+  _linkCand.length = 0;
+  for (let k=0;k<qB.length;k++){
+    const o = qB[k];
+    if (o === c || o.dead || o.boss || o.conduit || isLinked(o)) continue;
+    const d2 = dist2(c.x,c.y,o.x,o.y);
+    if (d2 <= CONDUIT_RANGE*CONDUIT_RANGE){ o._linkD2 = d2; _linkCand.push(o); }
+  }
+  _linkCand.sort((a,b) => a._linkD2 - b._linkD2);
+  for (let k=0;k<_linkCand.length && k<CONDUIT_LINKS;k++){
+    _linkCand[k].linkedTo = c;
+    c.links.push(_linkCand[k]);
+  }
+  _linkCand.length = 0;
 }
 
 /* ============================= GROUND HAZARDS =============================
@@ -3666,7 +3746,10 @@ function firePlayerWeapon(){
 function damageEnemy(e, dmg, isCrit, quiet){
   if (e.dead || dmg <= 0) return;
   if (e.boss && e.phaseGate > 0) return;
-  if (e.dr) dmg *= (1 - e.dr);
+  const shielded = isLinked(e);
+  let resist = e.dr || 0;
+  if (shielded) resist = 1 - (1 - resist) * (1 - CONDUIT_DR);
+  if (resist > 0) dmg *= 1 - Math.min(DR_CAP, resist);
   if (player.bigGame && (e.boss || e.elite)) dmg *= (1 + player.bigGame);
   if (freezeT > 0 && !e.boss) dmg *= 1.3;          // frozen things shatter
   const cryo = player.cryo;
@@ -3688,7 +3771,8 @@ function damageEnemy(e, dmg, isCrit, quiet){
   }
   if (dmg <= 0) return;
   e.hp -= dmg;
-  if (!quiet) e.hitFlash = 0.09;
+  // a shielded hit flashes at half strength: the tether visibly soaks it
+  if (!quiet) e.hitFlash = shielded ? 0.045 : 0.09;
   const dealt = Math.min(dmg, hpBefore);
 
   // Overload fills on the FRACTION of a target you removed, not on raw numbers,
@@ -3714,7 +3798,7 @@ function damageEnemy(e, dmg, isCrit, quiet){
   }
 
   if (!quiet){
-    burst(e.x, e.y, isCrit ? '#f9e838' : '#ffffff', isCrit ? 5 : 2,
+    burst(e.x, e.y, shielded ? CONDUIT_COLOR : isCrit ? '#f9e838' : '#ffffff', isCrit && !shielded ? 5 : 2,
           {minSpd:60,maxSpd:180,minLife:0.14,maxLife:0.3,minSize:1.4,maxSize:2.6});
   }
 
@@ -3740,16 +3824,18 @@ function damageEnemy(e, dmg, isCrit, quiet){
     spawnText(e.x + fxRand(-14,14), e.y-e.radius-4, String(Math.round(dmg)), '#ffffff', 12, 0.42);
   } else if (!quiet && dmgTextBudget > 0){
     dmgTextBudget--;
-    spawnText(e.x + fxRand(-8,8), e.y-e.radius-4, String(Math.round(dmg)), '#cfe3f2', 11, 0.38);
+    spawnText(e.x + fxRand(-8,8), e.y-e.radius-4, String(Math.round(dmg)), shielded ? '#9d86a6' : '#cfe3f2', 11, 0.38);
   }
 
-  if (!quiet) Audio_.hit();
+  if (!quiet){ if (shielded) Audio_.hitShielded(); else Audio_.hit(); }
   if (e.hp <= 0) killEnemy(e);
 }
 
 function killEnemy(e){
   if (e.dead) return;
   e.dead = true;
+  if (e.conduit) dropTethers(e);
+  if (e.linkedTo) unlinkAlly(e);
   killCount++;
   comboCount++;
   if (comboCount > bestCombo) bestCombo = comboCount;
@@ -4336,6 +4422,10 @@ function updateEnemies(dt){
       if (e.dead) continue;
       if (Math.random() < dt*8) addParticle(e.x+fxRand(-8,8), e.y+fxRand(-8,8), fxRand(-15,15), fxRand(-50,-15), 0.4, fxRand(1.5,3), '#ff8a2e', 0, 0.95);
     }
+    // before the stun/freeze early-outs: a frozen conduit still has to let go of
+    // allies that die or drift away, and a stale end must not pin a dead conduit
+    if (e.linkedTo && e.linkedTo.dead) e.linkedTo = null;
+    if (e.conduit) updateConduit(e, dt);
     // a held telegraph would keep glowing while its owner is frozen mid-aim
     if (e.stun > 0){ e.stun -= dt; e._vx = 0; e._vy = 0; e.windup = 0; continue; }
     if (freezeT > 0 && !e.boss){ e._vx = 0; e._vy = 0; e.windup = 0; continue; }
@@ -4449,6 +4539,15 @@ function updateEnemies(dt){
                     player.y + player.mvy*player.speed*lead,
                     70, e.dmg*0.55, 7, '#5b8cff', 'BLIGHT SPORES');
       }
+    }
+    else if (e.conduit){
+      // hangs back at medium range: close enough that the pack swarming you stays
+      // inside its tether, far enough that reaching it means pushing through (or
+      // shooting past) the very bodies it is shielding
+      const desired = 200;
+      const moveScale = clamp((d - desired)/70, -1, 1);
+      e.x += (dx/d) * espd * moveScale * dt;
+      e.y += (dy/d) * espd * moveScale * dt;
     }
     else if (e.weaves){
       // orbits at range instead of charging: standing still never makes it go away
@@ -5691,6 +5790,32 @@ function render(){
     ctx.restore();
   }
 
+  /* ---- conduit tethers ----
+     Drawn under the bodies so a beam reads as a link between two enemies rather
+     than as a shot. The dashes flow from the conduit outward, which is what tells
+     you which end to aim at. */
+  for (let i=0;i<enemies.length;i++){
+    const c = enemies[i];
+    if (!c.conduit || c.dead || !c.links.length) continue;
+    ctx.save();
+    ctx.strokeStyle = CONDUIT_COLOR;
+    ctx.lineCap = 'round';
+    for (let k=0;k<c.links.length;k++){
+      const o = c.links[k];
+      if (o.dead || (!inView(c.x, c.y, 40) && !inView(o.x, o.y, 40))) continue;
+      ctx.globalAlpha = 0.26;
+      ctx.lineWidth = 8;
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(o.x, o.y); ctx.stroke();
+      ctx.globalAlpha = 0.75 + 0.2*Math.sin(elapsed*9 + k*2);
+      ctx.lineWidth = 2.6;
+      ctx.setLineDash([10, 7]);
+      ctx.lineDashOffset = -elapsed*70;
+      ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(o.x, o.y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   /* ---- enemies ---- */
   for (let i=0;i<enemies.length;i++){
     const e = enemies[i];
@@ -5746,6 +5871,26 @@ function render(){
        Layering the flash OVER the body keeps identity intact and still pops. */
     drawGlow(e.x, e.y, e.radius, e.color, 1, e.shape);
     if (e.hitFlash > 0) drawGlow(e.x, e.y, e.radius, '#ffffff', clamp(e.hitFlash/0.09,0,1)*0.6, e.shape);
+
+    // tethered: three rotating shield plates in the conduit's magenta, solid
+    // where the elite ring is dashed, so the two never read as the same word
+    if (isLinked(e)){
+      const rr = e.radius + 5, a0 = elapsed*2.4;
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = CONDUIT_COLOR; ctx.lineWidth = 2.4;
+      for (let k=0;k<3;k++){
+        const a = a0 + k*TAU/3;
+        ctx.beginPath(); ctx.arc(e.x, e.y, rr, a, a + TAU/5); ctx.stroke();
+      }
+      ctx.restore();
+    } else if (e.conduit && e.links.length){
+      ctx.save();
+      ctx.globalAlpha = 0.35 + 0.25*Math.sin(elapsed*9);
+      ctx.strokeStyle = CONDUIT_COLOR; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.radius + 6 + 2*Math.sin(elapsed*9), 0, TAU); ctx.stroke();
+      ctx.restore();
+    }
 
     // The highlighted target makes the movement→aim relationship visible. Auto
     // fire should feel assisted, never arbitrary.
@@ -6981,6 +7126,8 @@ function renderGameToText(){
       hp:Math.max(0,Math.round(e.hp)), maxHp:Math.round(e.maxHp),
       state:e.fuse >= 0 ? 'fusing' : e.windup > 0 ? 'aiming'
         : ((e.lancer || e.bossType === 'juggernaut') ? e.chargeState : 'active'),
+      linked:isLinked(e),
+      ...(e.conduit ? {links:e.links.length} : null),
     }));
   const threats = [];
   for (let i=0;i<EBULLETS.n && threats.length<14;i++){
@@ -7045,6 +7192,8 @@ if (manualClock){
     setUlt:value => { player.ult.charge=clamp(value,0,player.ult.max); player.ult.wasReady=player.ult.charge>=player.ult.max; },
     setHealth:value => { player.health=clamp(value,0,player.maxHealth); },
     setElapsed:value => { elapsed=Math.max(0,value); },
+    // the director picks archetypes by this clock, not `elapsed` (bosses slow it)
+    setSpawnClock:value => { spawnClock=Math.max(0,value); },
     player:() => player,
     enemies:() => enemies,
     bullets:() => BULLETS.items,

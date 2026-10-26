@@ -19,6 +19,8 @@ Original prompt: This is a simple html based game, where you pick up upgrades an
 
 - Made e2e runs reproducible: simulation randomness (spawns, offers, crits, procs, drops, AI timers) now draws from a mulberry32 stream that `resetGame()` reseeds every run, from `Math.random` in live play. In the test client, `window.__neon_test.seed(n)` (or `window.__vt_seed` set before load) pins the seed for every later run. Particles, shake, damage-number jitter and audio use `fxRand`/`Math.random`, so they never advance the simulation stream. `render_game_to_text()` now reports player `maxHp` at the same 0.1 precision as `hp`.
 
+- Added the CONDUIT (`ENEMY_TYPES.conduit`), a support enemy that makes target priority a decision: it hangs back about 200px from the pilot and tethers up to 3 nearby non-boss, non-conduit allies (220px to link, 255px to snap), re-picking the nearest every 1.1–1.7s. Tethered allies take 40% less damage; every resistance (ARMORED, WARDED, tethers) combines multiplicatively under a 60% cap (`DR_CAP`) in `damageEnemy`. Magenta beams and rotating shield plates mark the link, and shielded hits flash, spark and sound duller. It unlocks at spawn clock 240 (about 4:50–5:15 elapsed, since boss fights slow that clock). `render_game_to_text()` reports `linked` on every visible enemy and `links` on conduits; `__neon_test.setSpawnClock(t)` sets the director's clock. `tests/conduit.spec.js` covers the damage rule, the cap, unlinking, the unlock and tip, and same-seed replay.
+
 ## Deploy
 
 - `.github/workflows/ci.yml` runs the Playwright suite on every push and PR. `.github/workflows/pages.yml` runs on pushes to `main` (and by hand via `workflow_dispatch`): it calls `ci.yml` as its `test` job, and `deploy` runs only if that passes.
