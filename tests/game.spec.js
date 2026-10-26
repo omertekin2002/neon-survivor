@@ -43,7 +43,7 @@ test('keyboard Enter on the focused start button also starts a run', async ({ pa
 });
 
 test('combat progresses and the state stays valid', async ({ page }) => {
-  await startRun(page);
+  await startRun(page, { seed: 0xC0FFEE });
   const start = await snapshot(page);
 
   // Twenty simulated seconds, one second at a time. Keep the pilot alive so the
@@ -151,7 +151,7 @@ test('lethal damage reaches game over and retry starts a fresh run', async ({ pa
 
 for (const type of ['sentinel', 'juggernaut', 'swarmcaller', 'voidreaper', 'architect']) {
   test(`boss spawn: ${type}`, async ({ page }) => {
-    await startRun(page);
+    await startRun(page, { seed: 0xB055 });
     const expectedName = await page.evaluate(t => {
       window.__neon_test.boss(t);
       return window.__neon_test.enemies().find(e => e.boss && !e.dead).bossName;
