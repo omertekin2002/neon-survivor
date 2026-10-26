@@ -6986,7 +6986,7 @@ function renderGameToText(){
     elapsed:Number(elapsed.toFixed(2)), difficulty:DIFF.id, threatLevel,
     player:{
       pilot:player.classId, x:Math.round(player.x), y:Math.round(player.y),
-      hp:Number(player.health.toFixed(1)), maxHp:Math.round(player.maxHealth),
+      hp:Number(player.health.toFixed(1)), maxHp:Number(player.maxHealth.toFixed(1)),
       level:player.level, xp:Number(player.xp.toFixed(1)), xpToNext:player.xpToNext,
       move:{x:Number(player.mvx.toFixed(2)),y:Number(player.mvy.toFixed(2))},
       target:stickyTarget && !stickyTarget.dead ? foeLabel(stickyTarget) : null,
