@@ -17,6 +17,19 @@ Original prompt: This is a simple html based game, where you pick up upgrades an
 - Final official game-client run reached level 2, 11 kills, and 13.67 simulated seconds in a valid live state; all three screenshots and resource-aware text snapshots were inspected and no console/page errors were recorded.
 - JavaScript parses cleanly and `git diff --check` passes after the implementation pass.
 
+- Made e2e runs reproducible: simulation randomness (spawns, offers, crits, procs, drops, AI timers) now draws from a mulberry32 stream that `resetGame()` reseeds every run, from `Math.random` in live play. In the test client, `window.__neon_test.seed(n)` (or `window.__vt_seed` set before load) pins the seed for every later run. Particles, shake, damage-number jitter and audio use `fxRand`/`Math.random`, so they never advance the simulation stream. `render_game_to_text()` now reports player `maxHp` at the same 0.1 precision as `hp`.
+
+- Added the CONDUIT (`ENEMY_TYPES.conduit`), a support enemy that makes target priority a decision: it hangs back about 200px from the pilot and tethers up to 3 nearby non-boss, non-conduit allies (220px to link, 255px to snap), re-picking the nearest every 1.1–1.7s. Tethered allies take 40% less damage; every resistance (ARMORED, WARDED, tethers) combines multiplicatively under a 60% cap (`DR_CAP`) in `damageEnemy`. Magenta beams and rotating shield plates mark the link, and shielded hits flash, spark and sound duller. It unlocks at spawn clock 240 (about 4:50–5:15 elapsed, since boss fights slow that clock). `render_game_to_text()` reports `linked` on every visible enemy and `links` on conduits; `__neon_test.setSpawnClock(t)` sets the director's clock. `tests/conduit.spec.js` covers the damage rule, the cap, unlinking, the unlock and tip, and same-seed replay.
+
+- Added local achievements (slice 1 of meta progression): 20 entries in the `ACHIEVEMENTS` registry across FIRST STEPS, MASTERY, SKILL, ENDURANCE and CAREER, each checked only against stats the game already tracks and never against `simRandom`. Tick checks toast once with a chime the moment they are met; win and every-pilot goals settle at run end and are listed on the result screen (`#achNote`) with everything else earned that run. Everything lives in one defensively parsed `Store` key, `ns_ach_v1` (`earned`, career `totals` for kills and bosses, and `wins` per pilot); career totals bank on boss kills, run end, abandon/restart and `pagehide`. On boot, saves from before achievements grant what they prove (`ns_win_*`, `ns_unlock_*`, best times). The ★ ACHIEVEMENTS menu button opens `#achScreen`, a keyboard and gamepad navigable modal list with focus trapped and returned. `__neon_test.achievements()` reports earned ids, totals, pilot wins and this run's unlocks; `tests/achievements.spec.js` covers them. An optional `reward` field is reserved for slice 2's gameplay unlocks.
+
+## Deploy
+
+- `.github/workflows/ci.yml` runs the Playwright suite on every push and PR. `.github/workflows/pages.yml` runs on pushes to `main` (and by hand via `workflow_dispatch`): it calls `ci.yml` as its `test` job, and `deploy` runs only if that passes.
+- `deploy` stages just the runtime files (`index.html`, `favicon.ico`, `favicon.svg`, `assets/`) into `_site/` and publishes that with `actions/deploy-pages`.
+- It deploys only when the repo's Pages source is "GitHub Actions". While Settings → Pages still uses the legacy "Deploy from a branch" build, the `source` job reports a "Pages deploy skipped" notice and the run stays green.
+- Rollback: switch the Pages source back to "Deploy from a branch" (`main`, `/`).
+
 ## TODO / handoff
 
 - No known gameplay or browser regressions remain from this pass.

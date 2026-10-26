@@ -425,6 +425,17 @@
   .evoRow.ready .eTag{ color:var(--rar-evo); box-shadow:0 0 12px rgba(249,232,56,0.5); }
   .evoRow.locked .eTag{ color:#5b7185; }
 
+  /* achievements: the same row language as the evolution tracker */
+  #achScreen{ z-index:6; }
+  #achSummary{ margin:0 0 10px; }
+  .achRow{ outline:none; }
+  .achRow:focus-visible{ outline:2px solid #fff; outline-offset:-2px; border-radius:6px; }
+  .achRow .eIcon{ color:#5b7185; }
+  .achRow.earned .eIcon{ color:var(--yellow); text-shadow:0 0 10px rgba(249,232,56,0.6); }
+  .achRow.earned .eTag{ color:var(--green); }
+  .achRow:not(.earned) .eName{ color:#a9c3d8; }
+  .achRow:not(.earned) .eTag{ color:#5b7185; }
+
   /* ---------- level up ---------- */
   #levelupScreen{ z-index:5; }
   .cards{ display:flex; gap:12px; flex-wrap:wrap; justify-content:center; margin-top:14px; }
@@ -723,7 +734,17 @@
       <div class="touchControls"><span><b>DRAG</b> anywhere left to move</span><span><b>⇢</b> dash</span><span><b>◉</b> overload</span></div>
       <div class="bestscore" id="bestScoreLine">BEST — TIME 00:00 &nbsp;·&nbsp; SCORE 0</div>
       <button class="btn" id="startBtn">▶ START RUN</button>
+      <button class="btn secondary small" id="achBtn" style="margin-top:12px;">★ ACHIEVEMENTS <span id="achBtnCount">0/0</span></button>
     </div>
+  </div>
+
+  <!-- ACHIEVEMENTS SCREEN -->
+  <div id="achScreen" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Achievements">
+    <div class="subtitle" style="margin-bottom:4px;">SERVICE RECORD</div>
+    <div class="title" style="font-size:clamp(22px,5vw,40px);">ACHIEVEMENTS</div>
+    <div class="bestscore" id="achSummary">0 / 0 EARNED</div>
+    <div class="panel statPanel" id="achList" role="list"></div>
+    <button class="btn" id="closeAchBtn">CLOSE</button>
   </div>
 
   <!-- LEVEL UP SCREEN -->
@@ -787,6 +808,7 @@
       <div class="buildStrip" id="goBuildStrip"></div>
       <div id="nextUnlock" class="bestscore" style="margin-top:10px;"></div>
       <div id="unlockNote" class="bestscore hidden" style="margin-top:10px;"></div>
+      <div id="achNote" class="bestscore hidden" style="margin-top:10px;"></div>
       <button class="btn hidden" id="continueBtn">▶▶ CONTINUE — ENDLESS</button>
       <button class="btn" id="restartBtn">⟲ TRY AGAIN</button>
       <button class="btn secondary" id="menuBtn">◀ CHANGE PILOT</button>
@@ -860,11 +882,32 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 120));
 document.addEventListener('fullscreenchange', () => setTimeout(resize, 0));
 
 /* ============================= UTIL ============================= */
-const rand      = (a,b) => a + Math.random()*(b-a);
+/* Two random sources. Everything that changes simulation state (spawns, offers,
+   crits, procs, drops, timers) draws from `simRandom`, a mulberry32 stream that
+   resetGame() reseeds for every run. Live play seeds it from Math.random, so
+   runs vary exactly as before; only the test client can pin the seed. Particles,
+   shake, damage-number jitter and audio use `fxRand`/Math.random instead: their
+   draw counts depend on fxScale, reducedMotion and real time, and must never
+   advance the simulation stream. */
+function mulberry32(seed){
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const freshSeed = () => (Math.random() * 4294967296) >>> 0;
+let pinnedSeed = null;                   // set only through the test client
+let simRandom = mulberry32(freshSeed());
+const seedSim   = () => { simRandom = mulberry32(pinnedSeed === null ? freshSeed() : pinnedSeed); };
+const rand      = (a,b) => a + simRandom()*(b-a);
+const fxRand    = (a,b) => a + Math.random()*(b-a);
 const randInt   = (a,b) => Math.floor(rand(a,b+1));
 const clamp     = (v,a,b) => v < a ? a : (v > b ? b : v);
 const lerp      = (a,b,t) => a + (b-a)*t;
-const pick      = arr => arr[(Math.random()*arr.length)|0];
+const pick      = arr => arr[(simRandom()*arr.length)|0];
 const dist2     = (x1,y1,x2,y2) => { const dx=x1-x2, dy=y1-y2; return dx*dx+dy*dy; };
 const dist      = (x1,y1,x2,y2) => Math.sqrt(dist2(x1,y1,x2,y2));
 const fmtNum    = n => Math.round(n).toLocaleString('en-US');
@@ -935,6 +978,7 @@ const SHAPES = {
   star:   [-5, -Math.PI/2],
   spike:  [-3, -Math.PI/2],   // three long barbs — reads as "this thing lunges"
   oct:    [8, Math.PI/8],
+  beacon: [-4, -Math.PI/2],   // four-point spark — the CONDUIT's transmitter
 };
 
 /* Three-level lookup (colour → shape → radius) rather than a composite string
@@ -1199,12 +1243,19 @@ const Audio_ = (() => {
   let lastHitT = 0, lastDeathT = 0, lastPickupT = 0, lastExecT = 0;
   return {
     unlock(){ ensure(); },
-    shoot(){ tone(rand(680,760), 0.05, 'square', 0.032); },
+    shoot(){ tone(fxRand(680,760), 0.05, 'square', 0.032); },
     hit(){
       const n = performance.now();
       if (n-lastHitT < 60) return;
       lastHitT = n;
-      tone(rand(220,280), 0.045, 'triangle', 0.042);
+      tone(fxRand(220,280), 0.045, 'triangle', 0.042);
+    },
+    // a hit a CONDUIT tether soaked: lower and softer, so the ear learns it too
+    hitShielded(){
+      const n = performance.now();
+      if (n-lastHitT < 60) return;
+      lastHitT = n;
+      tone(fxRand(105,130), 0.07, 'sine', 0.036);
     },
     death(){
       const n = performance.now();
@@ -1217,13 +1268,14 @@ const Audio_ = (() => {
       const n = performance.now();
       if (n-lastPickupT < 45) return;
       lastPickupT = n;
-      tone(rand(900,1000), 0.04, 'sine', 0.018);
+      tone(fxRand(900,1000), 0.04, 'sine', 0.018);
     },
     dash(){ tone(520, 0.13, 'sawtooth', 0.05, {sweepTo:1400}); },
     dodge(){ tone(1180, 0.14, 'triangle', 0.055, {sweepTo:1760}); },
     dashFail(){ tone(180, 0.07, 'square', 0.03, {sweepTo:120}); },
     levelup(){ [0,0.09,0.18].forEach((t,i)=> setTimeout(()=>tone(520+i*160, 0.15, 'square', 0.055), t*1000)); },
     evolve(){ [0,0.1,0.2,0.32].forEach((t,i)=> setTimeout(()=>tone(440+i*180, 0.22, 'sawtooth', 0.06), t*1000)); },
+    achievement(){ [0,0.08,0.16].forEach((t,i)=> setTimeout(()=>tone(990+i*250, 0.12, 'triangle', 0.045), t*1000)); },
     boss(){ tone(90, 0.6, 'sawtooth', 0.09, {sweepTo:60}); noise(0.5, 0.03); },
     bossDown(){ [0,0.12,0.26].forEach((t,i)=> setTimeout(()=>tone(260-i*60, 0.5, 'sawtooth', 0.08, {sweepTo:50}), t*1000)); },
     gameover(){ stopMusic(); tone(300, 0.8, 'sawtooth', 0.08, {sweepTo:40}); },
@@ -1324,6 +1376,7 @@ window.addEventListener('keydown', e => {
 
   if (k === 'p' || k === 'escape'){
     if (state === 'stats') closeStats();
+    else if (state === 'achievements') closeAchievements();
     else if (state === 'playing' || state === 'paused') togglePause();
   }
   if (k === 'i'){
@@ -1464,10 +1517,11 @@ function readGamepad(out){
    keyboard navigation so a pad can finish the whole run without a mouse. */
 let padMenuDir = 0, padMenuAccept = false, padMenuBack = false, padMenuPause = false;
 function menuPadTargets(){
-  if (state === 'start') return [...document.querySelectorAll('#diffRow .diffBtn, #classGrid .classCard:not(.locked), #startBtn')];
+  if (state === 'start') return [...document.querySelectorAll('#diffRow .diffBtn, #classGrid .classCard:not(.locked), #startBtn, #achBtn')];
   if (state === 'levelup') return [...document.querySelectorAll('#cardsWrap .card, #rerollBtn:not(:disabled), #banishBtn:not(:disabled), #skipBtn:not(:disabled)')];
   if (state === 'paused') return [...document.querySelectorAll('#resumeBtn, #loadoutFromPauseBtn, #retryFromPauseBtn, #restartFromPauseBtn')];
   if (state === 'stats') return [document.getElementById('closeStatsBtn')];
+  if (state === 'achievements') return [...document.querySelectorAll('#achList .achRow, #closeAchBtn')];
   if (state === 'gameover') return [...document.querySelectorAll('#continueBtn:not(.hidden), #restartBtn, #menuBtn')];
   return [];
 }
@@ -1477,6 +1531,7 @@ function defaultPadTarget(targets){
   const preferred = state === 'start' ? document.getElementById('startBtn')
     : state === 'paused' ? document.getElementById('resumeBtn')
     : state === 'stats' ? document.getElementById('closeStatsBtn')
+    : state === 'achievements' ? document.getElementById('closeAchBtn')
     : state === 'gameover' ? (document.querySelector('#continueBtn:not(.hidden)') || document.getElementById('restartBtn'))
     : targets[0];
   return targets.includes(preferred) ? preferred : targets[0];
@@ -1523,6 +1578,7 @@ function pollGamepadMenus(){
     if (back && !padMenuBack){
       if (state === 'paused'){ padDash = true; togglePause(); }
       else if (state === 'stats') closeStats();
+      else if (state === 'achievements') closeAchievements();
     }
   }
 
@@ -1540,7 +1596,7 @@ let shakeMag = 0, hitStop = 0, hitStopCd = 0, freezeT = 0;
 let shakeAng = 0, shakeT = 0;
 function addShake(m){
   if (m <= shakeMag * 0.55) return;      // let a big punch finish before a small one restarts it
-  if (m >= shakeMag){ shakeAng = rand(0, TAU); shakeT = 0; }
+  if (m >= shakeMag){ shakeAng = fxRand(0, TAU); shakeT = 0; }
   shakeMag = Math.max(shakeMag, m);
 }
 let bossSpawnedCount = 0, bossKills = 0, nextBossTime = 55, bossAlive = false, bossRef = null;
@@ -1718,8 +1774,8 @@ function burst(x, y, color, count, o){
   const minLife=o.minLife||0.25, maxLife=o.maxLife||0.6;
   const minSize=o.minSize||1.5, maxSize=o.maxSize||3.5;
   for (let i=0;i<count;i++){
-    const a = rand(0,TAU), s = rand(minSpd,maxSpd);
-    addParticle(x, y, Math.cos(a)*s, Math.sin(a)*s, rand(minLife,maxLife), rand(minSize,maxSize), color, o.grav||0, o.drag);
+    const a = fxRand(0,TAU), s = fxRand(minSpd,maxSpd);
+    addParticle(x, y, Math.cos(a)*s, Math.sin(a)*s, fxRand(minLife,maxLife), fxRand(minSize,maxSize), color, o.grav||0, o.drag);
   }
 }
 function spawnText(x, y, str, color, size, life){
@@ -1957,6 +2013,129 @@ const CLASSES = [
 ];
 const classById = id => CLASSES.find(c => c.id === id) || CLASSES[0];
 const isUnlocked = c => !c.unlock || Store.get(c.unlock.key,'0') === '1';
+
+/* ============================= ACHIEVEMENTS =============================
+   Long-term goals for a player who has already unlocked the roster. Every check
+   reads stats the game tracks anyway and none of them touches simRandom, so a
+   seeded run replays identically with or without them.
+   `on` says when a check runs: 'tick' (the default) every simulation tick, so it
+   toasts the moment it is met; 'unlock' when a pilot unlocks; 'end' only on the
+   result screen, where the whole run is known. Every check also runs at run end.
+   `goal` + `progress` mark a counted goal, shown as n/goal in the panel; `retro`
+   grants it from saves made before achievements existed. `reward` is reserved
+   for gameplay unlocks in the next slice and is unused for now. */
+const ACH_KEY = 'ns_ach_v1';
+const ACH_THEMES = ['FIRST STEPS', 'MASTERY', 'SKILL', 'ENDURANCE', 'CAREER'];
+const evoCount = () => Object.keys(player.evolved).length;
+const hasWin = id => Store.get(WIN_KEY + '_' + id, '0') === '1';
+const lockedPilots = () => CLASSES.filter(c => c.unlock);
+const bestTimeAny = () => Math.max(0, ...DIFFICULTIES.map(d =>
+  Store.num(BEST_TIME_KEY + (d.id === 'veteran' ? '' : '_' + d.id), 0)));
+const ACHIEVEMENTS = [
+  { id:'first_boss', theme:'FIRST STEPS', icon:'◆', name:'GIANT SLAYER', desc:'Destroy a boss',
+    check:() => bossKills >= 1,
+    retro:() => isUnlocked(classById('reaper')) || DIFFICULTIES.some(d => hasWin(d.id)) },
+  { id:'first_evo', theme:'FIRST STEPS', icon:'✦', name:'EVOLVED', desc:'Evolve an upgrade',
+    check:() => evoCount() >= 1 },
+  { id:'level_10', theme:'FIRST STEPS', icon:'▲', name:'POWER SPIKE', desc:'Reach level 10 in a run',
+    check:() => player.level >= 10, retro:() => isUnlocked(classById('warden')) },
+  { id:'first_node', theme:'FIRST STEPS', icon:'◎', name:'NODE RUNNER', desc:'Secure an Overcharge Node',
+    check:() => nodesHeld >= 1 },
+  { id:'survive_5', theme:'FIRST STEPS', icon:'◷', name:'STILL STANDING', desc:'Survive 5:00 in a run',
+    check:() => elapsed >= 300, retro:() => bestTimeAny() >= 300 },
+
+  ...DIFFICULTIES.map(d => ({
+    id:'win_' + d.id, theme:'MASTERY', icon:'★', name:'PURGED · ' + d.name,
+    desc:'Destroy THE ARCHITECT on ' + d.name, on:'end',
+    check:() => wonRun && DIFF.id === d.id, retro:() => hasWin(d.id) })),
+  { id:'pilot_unlock', theme:'MASTERY', icon:'⛨', name:'NEW BLOOD', desc:'Unlock a new pilot', on:'unlock',
+    check:() => lockedPilots().some(isUnlocked), retro:() => lockedPilots().some(isUnlocked) },
+  { id:'full_roster', theme:'MASTERY', icon:'⟡', name:'FULL ROSTER', desc:'Unlock every pilot', on:'unlock',
+    goal:3, progress:() => lockedPilots().filter(isUnlocked).length,
+    retro:() => lockedPilots().every(isUnlocked) },
+  { id:'ace', theme:'MASTERY', icon:'♛', name:'ACE OF ACES', desc:'Destroy THE ARCHITECT with every pilot', on:'end',
+    goal:CLASSES.length, progress:() => CLASSES.filter(c => achState.wins[c.id]).length },
+
+  { id:'dodge_25', theme:'SKILL', icon:'⇢', name:'BULLET DANCER', desc:'Land 25 perfect dodges in one run',
+    check:() => dodgeCount >= 25 },
+  { id:'combo_100', theme:'SKILL', icon:'✺', name:'CHAIN REACTION', desc:'Reach a 100-kill combo',
+    check:() => bestCombo >= 100 },
+  { id:'flawless_boss', theme:'SKILL', icon:'◇', name:'UNTOUCHABLE', desc:'Destroy a boss without losing hull during its fight',
+    check:() => flawlessBoss },
+  { id:'triple_evo', theme:'SKILL', icon:'✧', name:'APEX BUILD', desc:'Evolve 3 upgrades in one run',
+    check:() => evoCount() >= 3 },
+  { id:'nodes_5', theme:'SKILL', icon:'⌖', name:'GRID HOLDER', desc:'Secure 5 Overcharge Nodes in one run',
+    check:() => nodesHeld >= 5 },
+
+  { id:'endless_15', theme:'ENDURANCE', icon:'∞', name:'OVERTIME', desc:'Reach 15:00 in Endless',
+    check:() => endless && elapsed >= 900 },
+  { id:'endless_20', theme:'ENDURANCE', icon:'∞', name:'NO END IN SIGHT', desc:'Reach 20:00 in Endless',
+    check:() => endless && elapsed >= 1200 },
+
+  { id:'bosses_25', theme:'CAREER', icon:'☠', name:'BOSS HUNTER', desc:'Destroy 25 bosses across all runs',
+    goal:25, progress:() => careerTotal('bosses') },
+  { id:'kills_10k', theme:'CAREER', icon:'⚔', name:'EXTERMINATOR', desc:'Destroy 10,000 enemies across all runs',
+    goal:10000, progress:() => careerTotal('kills') },
+];
+const achMet = a => a.check ? a.check() : a.progress() >= a.goal;
+
+/* One JSON key, parsed defensively: anything malformed falls back to a fresh
+   record field by field, and unknown ids are dropped. */
+function loadAchievements(){
+  const out = { earned:{}, totals:{ kills:0, bosses:0 }, wins:{} };
+  let raw = null;
+  try { raw = JSON.parse(Store.get(ACH_KEY, 'null')); } catch(e){ raw = null; }
+  if (!raw || typeof raw !== 'object') return out;
+  if (raw.earned && typeof raw.earned === 'object')
+    for (const a of ACHIEVEMENTS) if (raw.earned[a.id] === 1) out.earned[a.id] = 1;
+  if (raw.totals && typeof raw.totals === 'object')
+    for (const k in out.totals){ const v = Number(raw.totals[k]); if (Number.isFinite(v) && v > 0) out.totals[k] = Math.floor(v); }
+  if (raw.wins && typeof raw.wins === 'object')
+    for (const c of CLASSES) if (raw.wins[c.id] === 1) out.wins[c.id] = 1;
+  return out;
+}
+const achState = loadAchievements();
+const saveAchievements = () => Store.set(ACH_KEY, JSON.stringify(achState));
+
+/* Career counters bank a run's kills and bosses at its end (and on boss kills,
+   abandon and page hide) rather than on every kill. Until then a run's share is
+   counted live from the delta, so a career goal can still pop mid-run. */
+const achBanked = { kills:0, bosses:0 };
+const runCareer = k => k === 'kills' ? killCount : bossKills;
+const careerTotal = k => achState.totals[k] + Math.max(0, runCareer(k) - achBanked[k]);
+function bankCareer(){
+  let changed = false;
+  for (const k in achBanked){
+    const d = runCareer(k) - achBanked[k];
+    if (d > 0){ achState.totals[k] += d; changed = true; }
+    achBanked[k] = runCareer(k);
+  }
+  if (changed) saveAchievements();
+}
+
+let newAchievements = [], flawlessBoss = false;
+function checkAchievements(on, announce){
+  let earned = false;
+  for (const a of ACHIEVEMENTS){
+    if (achState.earned[a.id] || (on !== 'all' && (a.on || 'tick') !== on) || !achMet(a)) continue;
+    achState.earned[a.id] = 1;
+    earned = true;
+    newAchievements.push(a.name);
+    if (announce){ showToast('★ ACHIEVEMENT — ' + a.name + ' · ' + a.desc, 1); Audio_.achievement(); }
+  }
+  if (earned) saveAchievements();
+}
+// Silent credit for what saves from before achievements already prove.
+function grantRetroAchievements(){
+  let earned = false;
+  for (const a of ACHIEVEMENTS){
+    if (achState.earned[a.id] || !a.retro || !a.retro()) continue;
+    achState.earned[a.id] = 1;
+    earned = true;
+  }
+  if (earned) saveAchievements();
+}
+const earnedAchievementIds = () => ACHIEVEMENTS.filter(a => achState.earned[a.id]).map(a => a.id);
 
 function newPlayer(cls){
   const s = cls.stats;
@@ -2412,7 +2591,7 @@ function rollRarity(){
   const wC = 62;
   const wR = 26 + Math.min(lvl,45)*0.40;
   const wE = 7  + Math.min(lvl,45)*0.38;
-  const r = Math.random() * (wC + wR + wE);
+  const r = simRandom() * (wC + wR + wE);
   if (r < wC) return RARITIES[0];
   if (r < wC + wR) return RARITIES[1];
   return RARITIES[2];
@@ -2456,7 +2635,7 @@ function checkEvoUnlocks(){
 function weightedPick(list){
   let total = 0;
   for (const u of list) total += (u.weight || 5);
-  let r = Math.random() * total;
+  let r = simRandom() * total;
   for (const u of list){
     r -= (u.weight || 5);
     if (r <= 0) return u;
@@ -2472,7 +2651,7 @@ function rollOffers(n){
   // Every ready evolution gets priority, not one random winner. If more recipes
   // are ready than there are slots, the remainder stay guaranteed next draft.
   while (offers.length < n && evos.length){
-    const e = evos.splice((Math.random()*evos.length)|0, 1)[0];
+    const e = evos.splice((simRandom()*evos.length)|0, 1)[0];
     offers.push({ u:e, rarity:{ key:'evo', label:'◆ EVOLUTION ◆', stacks:1, cls:'rar-evo' }, stacks:1 });
   }
   const pool = eligibleUpgrades();
@@ -2583,6 +2762,17 @@ function applyOffer(o){
 }
 
 /* ============================= ENEMIES ============================= */
+/* CONDUIT tuning. Magenta is the one hue no archetype, shot, pickup or HUD bar
+   uses, so a magenta beam can only ever mean "this one is shielded". */
+const CONDUIT_COLOR = '#ff3dff';
+const CONDUIT_LINKS = 3;      // allies tethered at once
+const CONDUIT_RANGE = 220;    // a tether forms inside this...
+const CONDUIT_DROP  = 255;    // ...and snaps past this, so a jostled ally does not flicker
+const CONDUIT_DR    = 0.4;    // damage a tethered ally shrugs off
+// Every damage resistance (ARMORED, WARDED, tethers) combines multiplicatively
+// and the total is capped, so stacking them can never make anything immune.
+const DR_CAP = 0.6;
+
 const ENEMY_TYPES = {
   grunt:    { radius:16, speed:98,  hp:22, dmg:8,  xp:3, color:'#ff2ea6', shape:'circle' },
   runner:   { radius:10, speed:192, hp:12, dmg:6,  xp:2, color:'#f9e838', shape:'diamond' },
@@ -2608,6 +2798,13 @@ const ENEMY_TYPES = {
      field into terrain worth reading. */
   blight:   { radius:20, speed:76,  hp:52, dmg:11, xp:8, color:'#5b8cff', shape:'oct', sower:true,
               tip:'NEW THREAT — BLIGHT: seeds corrosive ground. Do not stand in the blue' },
+  /* CONDUIT — nothing in the roster asked WHICH TARGET FIRST: every body was
+     worth shooting in proportion to its threat, so auto-aim and spray was always
+     right. It hangs back and tethers the pack in front of it, and tethered allies
+     shrug off part of every hit until you cut the source. The body is fragile on
+     purpose: the answer is to aim at it, not to out-damage the shield. */
+  conduit:  { radius:15, speed:84,  hp:28, dmg:7,  xp:8, color:CONDUIT_COLOR, shape:'beacon', conduit:true,
+              tip:'NEW THREAT — CONDUIT: shields the enemies around it. Kill it first' },
 };
 
 // hard ceiling on live entities — past this the director escalates enemy QUALITY
@@ -2668,6 +2865,9 @@ const TYPE_UNLOCKS = [
   { t:124, add:['weaver','weaver'] },
   { t:168, add:['bomber','brute'] },
   { t:212, add:['lancer','lancer'] },
+  // one copy only: a support is worth killing because it is the exception in a
+  // pack. Boss fights slow this clock, so 240 lands around 4:50–5:15 of a run.
+  { t:240, add:['conduit'] },
   { t:262, add:['blight','shooter'] },
   { t:320, add:['bomber','weaver','lancer','brute'] },
 ];
@@ -2692,11 +2892,11 @@ function spawnEdgePos(){
   // clamped candidate can land on-screen, so keep trying rather than popping in visibly
   const pad = 70;
   const sides = [0,1,2,3];
-  for (let i=sides.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; const t=sides[i]; sides[i]=sides[j]; sides[j]=t; }
+  for (let i=sides.length-1;i>0;i--){ const j=(simRandom()*(i+1))|0; const t=sides[i]; sides[i]=sides[j]; sides[j]=t; }
   // Bias spawns into the hemisphere you are driving toward. Without this you can
   // outrun the whole game by picking a direction, and traversal stops meaning
   // anything; with it, moving somewhere reads as advancing into danger.
-  if (player && (player.mvx || player.mvy) && Math.random() < 0.65){
+  if (player && (player.mvx || player.mvy) && simRandom() < 0.65){
     const pref = Math.abs(player.mvx) > Math.abs(player.mvy)
       ? (player.mvx > 0 ? 1 : 3)
       : (player.mvy > 0 ? 2 : 0);
@@ -2754,6 +2954,7 @@ function spawnEnemy(typeKey, opts){
     ranged: !!base.ranged, splits: !!base.splits,
     weaves: !!base.weaves, bomber: !!base.bomber,
     lancer: !!base.lancer, sower: !!base.sower,
+    conduit: !!base.conduit, links: base.conduit ? [] : null, linkT: 0.35, linkedTo: null,
     fireTimer: rand(0.5,1.8),
     hitFlash: 0, touchCd: 0, orbitCd: 0,
     stun: 0, burn: 0, burnDps: 0,
@@ -2761,7 +2962,7 @@ function spawnEnemy(typeKey, opts){
     windup: 0, aimAng: 0,
     chargeState:'idle', chargeTimer: rand(1.1,2.4), chargeDirX:0, chargeDirY:0, chargeHit:false, windupT:0,
     elite: !!eliteMod, eliteMod, dr: eliteMod && eliteMod.dr ? eliteMod.dr : 0,
-    weaveDir: Math.random() < 0.5 ? 1 : -1, weaveT: rand(1.5,3.5),
+    weaveDir: simRandom() < 0.5 ? 1 : -1, weaveT: rand(1.5,3.5),
     fuse: -1, ring: rand(0,TAU),
     lastDashHit: -1, healT: 0,
     summoned: !!opts.summoned,
@@ -2779,6 +2980,56 @@ function spawnEnemy(typeKey, opts){
     burst(e.x, e.y, eliteMod.color, 18, {minSpd:60,maxSpd:220,minLife:0.3,maxLife:0.6});
   }
   return e;
+}
+
+/* ---------- CONDUIT tethers ----------
+   A tether has two ends: the conduit's `links` (what the beams draw) and the
+   ally's `linkedTo` (what the damage rule reads). Plenty of code retires an enemy
+   by just setting `dead` (recycling, fuses, purges), so nothing trusts the flag
+   alone: a tether only counts while both ends are alive. */
+function isLinked(e){
+  const c = e.linkedTo;
+  return !!c && !c.dead && !e.dead;
+}
+function dropTethers(c){
+  for (let k=0;k<c.links.length;k++) if (c.links[k].linkedTo === c) c.links[k].linkedTo = null;
+  c.links.length = 0;
+}
+function unlinkAlly(o){
+  const c = o.linkedTo;
+  o.linkedTo = null;
+  if (c && c.links){ const k = c.links.indexOf(o); if (k >= 0) c.links.splice(k, 1); }
+}
+const _linkCand = [];
+function updateConduit(c, dt){
+  for (let k=c.links.length-1;k>=0;k--){
+    const o = c.links[k];
+    if (o.dead || o.linkedTo !== c || dist2(c.x,c.y,o.x,o.y) > CONDUIT_DROP*CONDUIT_DROP){
+      if (o.linkedTo === c) o.linkedTo = null;
+      c.links.splice(k, 1);
+    }
+  }
+  c.linkT -= dt;
+  if (c.linkT > 0) return;
+  // Re-pick the nearest allies every second or so, so the shielded group shifts
+  // with the pack. Bosses are never shielded, and conduits never shield each
+  // other — otherwise two of them make an unkillable pair.
+  c.linkT = rand(1.1, 1.7);
+  dropTethers(c);
+  gridQuery(c.x, c.y, CONDUIT_RANGE, qB);
+  _linkCand.length = 0;
+  for (let k=0;k<qB.length;k++){
+    const o = qB[k];
+    if (o === c || o.dead || o.boss || o.conduit || isLinked(o)) continue;
+    const d2 = dist2(c.x,c.y,o.x,o.y);
+    if (d2 <= CONDUIT_RANGE*CONDUIT_RANGE){ o._linkD2 = d2; _linkCand.push(o); }
+  }
+  _linkCand.sort((a,b) => a._linkD2 - b._linkD2);
+  for (let k=0;k<_linkCand.length && k<CONDUIT_LINKS;k++){
+    _linkCand[k].linkedTo = c;
+    c.links.push(_linkCand[k]);
+  }
+  _linkCand.length = 0;
 }
 
 /* ============================= GROUND HAZARDS =============================
@@ -2811,9 +3062,9 @@ function updateHazards(dt){
       }
     }
     if (!reducedMotion && fxScale > 0.5 && Math.random() < dt*7 && inView(h.x, h.y, h.r)){
-      const a = rand(0,TAU), d = Math.sqrt(Math.random())*h.r;
-      addParticle(h.x+Math.cos(a)*d, h.y+Math.sin(a)*d, rand(-10,10), rand(-34,-10),
-                  0.5, rand(1.4,2.8), h.color, 0, 0.94);
+      const a = fxRand(0,TAU), d = Math.sqrt(Math.random())*h.r;
+      addParticle(h.x+Math.cos(a)*d, h.y+Math.sin(a)*d, fxRand(-10,10), fxRand(-34,-10),
+                  0.5, fxRand(1.4,2.8), h.color, 0, 0.94);
     }
   }
   compact(hazards);
@@ -2889,7 +3140,7 @@ function spawnBoss(forceKey){
   // affixes start once the roster has stopped being new, and get near-certain late.
   // The finale never wears one — it has four phases of its own and does not need a
   // random modifier deciding how hard the run's one scripted fight is.
-  const affix = (!isFinal && idx >= 2 && Math.random() < clamp(0.3 + (idx-2)*0.16, 0, 0.85)) ? pick(BOSS_AFFIXES) : null;
+  const affix = (!isFinal && idx >= 2 && simRandom() < clamp(0.3 + (idx-2)*0.16, 0, 0.85)) ? pick(BOSS_AFFIXES) : null;
   // Scale on TIME and boss index only — never on player level. Keying boss HP to
   // your own level means every upgrade you take silently buffs the boss, so the
   // fight never gets easier and the reward loop cancels itself out. Riding the
@@ -2940,6 +3191,7 @@ function spawnBoss(forceKey){
     summonTimer: rand(4,5.5),
     telegraphTimer: rand(3,4.5), telegraph:null,
     ringWind: 0,
+    cleanFight: true,    // no hull lost since it spawned (UNTOUCHABLE)
   };
   if (affix) affix.apply(b);
   enemies.push(b);
@@ -3043,7 +3295,7 @@ function updateSpawning(dt){
     const eliteChance = Math.min(0.40,
       clamp((spawnClock-45) * 0.0011, 0, 0.20) * pr * (crowded ? 2.2 : starving ? 2 : 1) * DIFF.spawn);
     for (let i=0;i<count;i++){
-      const isElite = spawnClock > 45 && Math.random() < eliteChance;
+      const isElite = spawnClock > 45 && simRandom() < eliteChance;
       spawnEnemy(pick(types), isElite ? {elite:true} : undefined);
     }
     threatLevel = 1 + Math.floor(spawnClock/20);
@@ -3122,7 +3374,7 @@ function choosePickupKind(){
   ];
   let total = 0;
   for (let i=0;i<weighted.length;i++) total += weighted[i][1];
-  let r = Math.random()*total;
+  let r = simRandom()*total;
   for (let i=0;i<weighted.length;i++){
     r -= weighted[i][1];
     if (r <= 0) return weighted[i][0];
@@ -3157,7 +3409,7 @@ function openCrate(c){
   Audio_.crate();
   addShake(6);
   burst(c.x, c.y, '#f9e838', 28, {minSpd:80,maxSpd:280,minLife:0.3,maxLife:0.6});
-  const r = Math.random();
+  const r = simRandom();
   if (r < 0.30){
     // a real choice, not a random stat silently bolted on behind your back
     pendingLevelUps++;
@@ -3171,7 +3423,7 @@ function openCrate(c){
     grantXP(Math.max(10, player.xpToNext*0.3));
     spawnText(c.x, c.y-22, 'CACHE: +HP +XP', '#39ff88', 15, 1.3);
   } else {
-    if (Math.random() < 0.6){ player.rerolls++; spawnText(c.x, c.y-22, 'CACHE: +1 REROLL', '#05f2f2', 15, 1.3); }
+    if (simRandom() < 0.6){ player.rerolls++; spawnText(c.x, c.y-22, 'CACHE: +1 REROLL', '#05f2f2', 15, 1.3); }
     else { player.banishes++; spawnText(c.x, c.y-22, 'CACHE: +1 BANISH', '#c86bff', 15, 1.3); }
     grantXP(10);
   }
@@ -3261,7 +3513,7 @@ function updateNode(dt){
       for (let i=0;i<n;i++){
         const a = rand(0,TAU);
         spawnEnemy(pick(types), { pos:{ x:node.x+Math.cos(a)*rand(260,420), y:node.y+Math.sin(a)*rand(260,420) },
-                                  elite: Math.random() < 0.10 });
+                                  elite: simRandom() < 0.10 });
       }
     }
     if (node.prog >= 1){
@@ -3635,8 +3887,8 @@ function firePlayerWeapon(){
   if (!reducedMotion){
     for (let i=0;i<2;i++){
       addParticle(player.x + ca*(player.radius+4), player.y + sa*(player.radius+4),
-                  -ca*rand(30,90) + rand(-40,40), -sa*rand(30,90) + rand(-40,40),
-                  0.13, rand(1.6,3), SHOT_COLOR, 0, 0.86);
+                  -ca*fxRand(30,90) + fxRand(-40,40), -sa*fxRand(30,90) + fxRand(-40,40),
+                  0.13, fxRand(1.6,3), SHOT_COLOR, 0, 0.86);
     }
   }
   return true;
@@ -3645,7 +3897,10 @@ function firePlayerWeapon(){
 function damageEnemy(e, dmg, isCrit, quiet){
   if (e.dead || dmg <= 0) return;
   if (e.boss && e.phaseGate > 0) return;
-  if (e.dr) dmg *= (1 - e.dr);
+  const shielded = isLinked(e);
+  let resist = e.dr || 0;
+  if (shielded) resist = 1 - (1 - resist) * (1 - CONDUIT_DR);
+  if (resist > 0) dmg *= 1 - Math.min(DR_CAP, resist);
   if (player.bigGame && (e.boss || e.elite)) dmg *= (1 + player.bigGame);
   if (freezeT > 0 && !e.boss) dmg *= 1.3;          // frozen things shatter
   const cryo = player.cryo;
@@ -3667,7 +3922,8 @@ function damageEnemy(e, dmg, isCrit, quiet){
   }
   if (dmg <= 0) return;
   e.hp -= dmg;
-  if (!quiet) e.hitFlash = 0.09;
+  // a shielded hit flashes at half strength: the tether visibly soaks it
+  if (!quiet) e.hitFlash = shielded ? 0.045 : 0.09;
   const dealt = Math.min(dmg, hpBefore);
 
   // Overload fills on the FRACTION of a target you removed, not on raw numbers,
@@ -3693,7 +3949,7 @@ function damageEnemy(e, dmg, isCrit, quiet){
   }
 
   if (!quiet){
-    burst(e.x, e.y, isCrit ? '#f9e838' : '#ffffff', isCrit ? 5 : 2,
+    burst(e.x, e.y, shielded ? CONDUIT_COLOR : isCrit ? '#f9e838' : '#ffffff', isCrit && !shielded ? 5 : 2,
           {minSpd:60,maxSpd:180,minLife:0.14,maxLife:0.3,minSize:1.4,maxSize:2.6});
   }
 
@@ -3716,19 +3972,21 @@ function damageEnemy(e, dmg, isCrit, quiet){
       hitStop = Math.max(hitStop, 0.022);
     }
   } else if (!quiet && e.boss){
-    spawnText(e.x + rand(-14,14), e.y-e.radius-4, String(Math.round(dmg)), '#ffffff', 12, 0.42);
+    spawnText(e.x + fxRand(-14,14), e.y-e.radius-4, String(Math.round(dmg)), '#ffffff', 12, 0.42);
   } else if (!quiet && dmgTextBudget > 0){
     dmgTextBudget--;
-    spawnText(e.x + rand(-8,8), e.y-e.radius-4, String(Math.round(dmg)), '#cfe3f2', 11, 0.38);
+    spawnText(e.x + fxRand(-8,8), e.y-e.radius-4, String(Math.round(dmg)), shielded ? '#9d86a6' : '#cfe3f2', 11, 0.38);
   }
 
-  if (!quiet) Audio_.hit();
+  if (!quiet){ if (shielded) Audio_.hitShielded(); else Audio_.hit(); }
   if (e.hp <= 0) killEnemy(e);
 }
 
 function killEnemy(e){
   if (e.dead) return;
   e.dead = true;
+  if (e.conduit) dropTethers(e);
+  if (e.linkedTo) unlinkAlly(e);
   killCount++;
   comboCount++;
   if (comboCount > bestCombo) bestCombo = comboCount;
@@ -3772,7 +4030,7 @@ function killEnemy(e){
     // A guaranteed powerup per elite was fine when elites were rare. Once the
     // director learned to spawn them in bunches it carpeted the field in free
     // nukes and freezes, and a resource you trip over stops being a reward.
-    if (Math.random() < 0.45) spawnPickup(e.x, e.y);
+    if (simRandom() < 0.45) spawnPickup(e.x, e.y);
     spawnGem(e.x + rand(-12,12), e.y + rand(-12,12), Math.round(e.xp*0.5));
     addScore(300);
     hitStop = Math.max(hitStop, 0.05);
@@ -3781,6 +4039,8 @@ function killEnemy(e){
   if (e.boss){
     bossAlive = false;
     bossKills++;
+    if (e.cleanFight) flawlessBoss = true;
+    bankCareer();
     if (bossKills >= 3) unlockClass('reaper');
     if (bossRef === e) bossRef = null;
     // Bosses are the run's only named beats, and the old spacing pushed them
@@ -3814,6 +4074,9 @@ function killEnemy(e){
    melee-range builds stay viable. Its rate limit is the per-enemy touch
    cooldown plus contactGrace, both owned by the caller. */
 let contactGrace = 0;
+function taintBossFights(){
+  for (let i=0;i<enemies.length;i++) if (enemies[i].boss) enemies[i].cleanFight = false;
+}
 function contactDamage(amount, sx, sy, src){
   if (state !== 'playing') return;
   if (player.dash.t > 0) return;
@@ -3832,6 +4095,7 @@ function contactDamage(amount, sx, sy, src){
 
   amount *= (1 - player.armor);
   player.health -= amount;
+  taintBossFights();
   player.hitFlashT = 0.13;
   addShake(6);
   comboCount = Math.floor(comboCount * 0.5);
@@ -3863,6 +4127,7 @@ function damagePlayer(amount, ignoreIFrames, sx, sy, src){
 
   amount *= (1 - player.armor);
   player.health -= amount;
+  taintBossFights();
   player.invT = 0.55;
   player.hitFlashT = 0.15;
   addShake(9);
@@ -4028,7 +4293,7 @@ function updatePlayer(dt){
     player.x += d.dirX * player.speed * d.power * dt;
     player.y += d.dirY * player.speed * d.power * dt;
     // afterimage ribbon
-    addParticle(player.x, player.y, rand(-25,25), rand(-25,25), 0.28, rand(4,7), '#05f2f2', 0, 0.9);
+    addParticle(player.x, player.y, fxRand(-25,25), fxRand(-25,25), 0.28, fxRand(4,7), '#05f2f2', 0, 0.9);
     /* Perfect dodge only ever counted bullets, so the three attacks the dash was
        BUILT to answer — a lancer's committed lane, a juggernaut's charge, a lit
        bomber — paid nothing for threading them. Those are the bravest dodges in
@@ -4115,8 +4380,8 @@ function updatePlayer(dt){
   player.trailT -= dt;
   if ((mvx || mvy) && player.trailT <= 0 && d.t <= 0){
     player.trailT = 0.035;
-    addParticle(player.x, player.y, -mvx*32 + rand(-10,10), -mvy*32 + rand(-10,10),
-                0.34, rand(2,4), player.classColor, 0, 0.94);
+    addParticle(player.x, player.y, -mvx*32 + fxRand(-10,10), -mvy*32 + fxRand(-10,10),
+                0.34, fxRand(2,4), player.classColor, 0, 0.94);
   }
 
   /* ---- weapon ---- */
@@ -4313,8 +4578,12 @@ function updateEnemies(dt){
         damageEnemy(e, e.burnDps * 0.125, false, true);
       }
       if (e.dead) continue;
-      if (Math.random() < dt*8) addParticle(e.x+rand(-8,8), e.y+rand(-8,8), rand(-15,15), rand(-50,-15), 0.4, rand(1.5,3), '#ff8a2e', 0, 0.95);
+      if (Math.random() < dt*8) addParticle(e.x+fxRand(-8,8), e.y+fxRand(-8,8), fxRand(-15,15), fxRand(-50,-15), 0.4, fxRand(1.5,3), '#ff8a2e', 0, 0.95);
     }
+    // before the stun/freeze early-outs: a frozen conduit still has to let go of
+    // allies that die or drift away, and a stale end must not pin a dead conduit
+    if (e.linkedTo && e.linkedTo.dead) e.linkedTo = null;
+    if (e.conduit) updateConduit(e, dt);
     // a held telegraph would keep glowing while its owner is frozen mid-aim
     if (e.stun > 0){ e.stun -= dt; e._vx = 0; e._vy = 0; e.windup = 0; continue; }
     if (freezeT > 0 && !e.boss){ e._vx = 0; e._vy = 0; e.windup = 0; continue; }
@@ -4396,7 +4665,7 @@ function updateEnemies(dt){
       } else if (e.chargeState === 'run'){
         e.x += e.chargeDirX * espd * 5.2 * dt;
         e.y += e.chargeDirY * espd * 5.2 * dt;
-        if (!reducedMotion) addParticle(e.x, e.y, rand(-25,25), rand(-25,25), 0.24, rand(2,4), '#ff2020', 0, 0.9);
+        if (!reducedMotion) addParticle(e.x, e.y, fxRand(-25,25), fxRand(-25,25), 0.24, fxRand(2,4), '#ff2020', 0, 0.9);
         e.chargeTimer -= dt;
         if (!e.chargeHit && d < e.radius + player.radius + 10){
           e.chargeHit = true;
@@ -4428,6 +4697,15 @@ function updateEnemies(dt){
                     player.y + player.mvy*player.speed*lead,
                     70, e.dmg*0.55, 7, '#5b8cff', 'BLIGHT SPORES');
       }
+    }
+    else if (e.conduit){
+      // hangs back at medium range: close enough that the pack swarming you stays
+      // inside its tether, far enough that reaching it means pushing through (or
+      // shooting past) the very bodies it is shielding
+      const desired = 200;
+      const moveScale = clamp((d - desired)/70, -1, 1);
+      e.x += (dx/d) * espd * moveScale * dt;
+      e.y += (dy/d) * espd * moveScale * dt;
     }
     else if (e.weaves){
       // orbits at range instead of charging: standing still never makes it go away
@@ -4595,7 +4873,7 @@ function updateBoss(e, dt, dx, dy, d){
       if (e.chargeTimer <= 0){ e.chargeState = 'dash'; e.chargeTimer = 0.45; }
     } else if (e.chargeState === 'dash'){
       e.x += e.chargeDirX*bspd*6.5*dt; e.y += e.chargeDirY*bspd*6.5*dt;
-      addParticle(e.x, e.y, rand(-30,30), rand(-30,30), 0.3, rand(3,6), '#ff8a2e', 0, 0.92);
+      addParticle(e.x, e.y, fxRand(-30,30), fxRand(-30,30), 0.3, fxRand(3,6), '#ff8a2e', 0, 0.92);
       e.chargeTimer -= dt;
       if (!e.chargeHit && d < e.radius + player.radius + 12){
         e.chargeHit = true;
@@ -4623,7 +4901,7 @@ function updateBoss(e, dt, dx, dy, d){
       const cnt = 3 + Math.round(e.enrage*2);
       for (let i=0;i<cnt;i++){
         const a = (TAU/cnt)*i;
-        spawnEnemy(Math.random() < 0.5 ? 'grunt' : 'runner',
+        spawnEnemy(simRandom() < 0.5 ? 'grunt' : 'runner',
                    { pos:{x:e.x+Math.cos(a)*52, y:e.y+Math.sin(a)*52}, summoned:true });
       }
     }
@@ -4791,7 +5069,7 @@ function updateBullets(dt){
           b.hits.push(e);
           if (b.hits.length > 16) b.hits.shift();
 
-          const isCrit = Math.random() < player.critChance;
+          const isCrit = simRandom() < player.critChance;
           const hitDmg = isCrit ? b.dmg * player.critMult : b.dmg;
 
           // impact shove — light, mass-scaled, none on bosses. Costs two lines and
@@ -4808,7 +5086,7 @@ function updateBullets(dt){
           if (player.explosive){
             triggerExplosion(b.x, b.y, hitDmg*player.explosive.dmgPct, player.explosive.radius, e);
           }
-          if (player.chain && Math.random() < player.chain.chance){
+          if (player.chain && simRandom() < player.chain.chance){
             triggerChain(e, hitDmg, player.chain.jumps, player.chain.range, player.chain.falloff, b.hits);
           }
 
@@ -5143,6 +5421,7 @@ function stepWorld(gdt, rdt){
   if (comboTimer > 0){ comboTimer -= gdt; if (comboTimer <= 0) comboCount = 0; }
   // guard on state: dying inside this tick must not raise a card over the death screen
   if (pendingLevelUps > 0 && state === 'playing') showLevelUpCard();
+  checkAchievements('tick', true);
 
   Audio_.setIntensity(bossAlive ? 1 : clamp(enemies.length/60, 0.15, 0.9));
   updateHUD();
@@ -5670,6 +5949,32 @@ function render(){
     ctx.restore();
   }
 
+  /* ---- conduit tethers ----
+     Drawn under the bodies so a beam reads as a link between two enemies rather
+     than as a shot. The dashes flow from the conduit outward, which is what tells
+     you which end to aim at. */
+  for (let i=0;i<enemies.length;i++){
+    const c = enemies[i];
+    if (!c.conduit || c.dead || !c.links.length) continue;
+    ctx.save();
+    ctx.strokeStyle = CONDUIT_COLOR;
+    ctx.lineCap = 'round';
+    for (let k=0;k<c.links.length;k++){
+      const o = c.links[k];
+      if (o.dead || (!inView(c.x, c.y, 40) && !inView(o.x, o.y, 40))) continue;
+      ctx.globalAlpha = 0.26;
+      ctx.lineWidth = 8;
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(o.x, o.y); ctx.stroke();
+      ctx.globalAlpha = 0.75 + 0.2*Math.sin(elapsed*9 + k*2);
+      ctx.lineWidth = 2.6;
+      ctx.setLineDash([10, 7]);
+      ctx.lineDashOffset = -elapsed*70;
+      ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(o.x, o.y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   /* ---- enemies ---- */
   for (let i=0;i<enemies.length;i++){
     const e = enemies[i];
@@ -5725,6 +6030,26 @@ function render(){
        Layering the flash OVER the body keeps identity intact and still pops. */
     drawGlow(e.x, e.y, e.radius, e.color, 1, e.shape);
     if (e.hitFlash > 0) drawGlow(e.x, e.y, e.radius, '#ffffff', clamp(e.hitFlash/0.09,0,1)*0.6, e.shape);
+
+    // tethered: three rotating shield plates in the conduit's magenta, solid
+    // where the elite ring is dashed, so the two never read as the same word
+    if (isLinked(e)){
+      const rr = e.radius + 5, a0 = elapsed*2.4;
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = CONDUIT_COLOR; ctx.lineWidth = 2.4;
+      for (let k=0;k<3;k++){
+        const a = a0 + k*TAU/3;
+        ctx.beginPath(); ctx.arc(e.x, e.y, rr, a, a + TAU/5); ctx.stroke();
+      }
+      ctx.restore();
+    } else if (e.conduit && e.links.length){
+      ctx.save();
+      ctx.globalAlpha = 0.35 + 0.25*Math.sin(elapsed*9);
+      ctx.strokeStyle = CONDUIT_COLOR; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.radius + 6 + 2*Math.sin(elapsed*9), 0, TAU); ctx.stroke();
+      ctx.restore();
+    }
 
     // The highlighted target makes the movement→aim relationship visible. Auto
     // fire should feel assisted, never arbitrary.
@@ -5948,7 +6273,7 @@ function render(){
   ctx.restore();
 
   /* ---- screen space ---- */
-  if (state !== 'start'){
+  if (state !== 'start' && state !== 'achievements'){
     // Elites are the one off-screen thing that can kill you before you ever see
     // it — a SWIFT elite closes from outside the viewport faster than you can
     // react to the glow. Capped at three so the edge never turns into a wreath.
@@ -6243,7 +6568,7 @@ function coverGameSurface(covered){
 }
 
 function modalFocusables(screen){
-  return [...screen.querySelectorAll('button:not(:disabled), [role="button"][tabindex="0"], a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')]
+  return [...screen.querySelectorAll('button:not(:disabled), [role="button"][tabindex="0"], .achRow[tabindex="0"], a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')]
     .filter(el => !el.classList.contains('hidden') && el.getClientRects().length > 0);
 }
 
@@ -6258,7 +6583,7 @@ function trapModalTab(e){
     e.preventDefault(); first.focus();
   }
 }
-for (const screen of [pauseScreen, levelupScreen, statsScreen, gameoverScreen]) screen.addEventListener('keydown', trapModalTab);
+for (const screen of [pauseScreen, levelupScreen, statsScreen, gameoverScreen, document.getElementById('achScreen')]) screen.addEventListener('keydown', trapModalTab);
 
 function resetPauseConfirm(){
   pauseConfirmId = '';
@@ -6286,10 +6611,14 @@ function unlockClass(id){
   newUnlocks.push(c.name);
   showToast('PILOT UNLOCKED — ' + c.name);
   Audio_.evolve();
+  checkAchievements('unlock', state === 'playing');
 }
 
 function resetGame(){
+  // an abandoned or restarted run still counts toward the career totals
+  if (player) bankCareer();
   clearToasts();
+  seedSim();
   simAccumulator = 0;
   manualAccumulator = 0;
   DIFF = diffById(selectedDifficulty);
@@ -6320,6 +6649,8 @@ function resetGame(){
   evoAnnounced = {}; statsFromPause = false;
   Audio_.setBossMode(false);
   newUnlocks = [];
+  newAchievements = []; flawlessBoss = false;
+  achBanked.kills = 0; achBanked.bosses = 0;
   for (const k in hudPrev) hudPrev[k] = (typeof hudPrev[k] === 'number') ? -1 : '';
 
   generatePylons();
@@ -6381,6 +6712,7 @@ function continueRun(){
 
 function toMenu(){
   resetPauseConfirm();
+  if (player) bankCareer();
   state = 'start';
   clearToasts();
   hud.classList.add('hidden');
@@ -6395,6 +6727,7 @@ function toMenu(){
   buildDiffRow();
   buildClassGrid();
   refreshBestLine();
+  refreshAchButton();
   Audio_.stopMusic();
   document.getElementById('startBtn').focus({preventScroll:false});
 }
@@ -6731,6 +7064,58 @@ function toggleStats(){
   else if (state === 'stats') closeStats();
 }
 
+/* ---------- achievements panel ----------
+   Opened from the menu only. Rows are focusable so Tab and the pad walk the list
+   and scroll it into view; closing returns focus to the menu button. */
+const achScreen = document.getElementById('achScreen');
+const achList   = document.getElementById('achList');
+function achSummaryText(){
+  return earnedAchievementIds().length + '/' + ACHIEVEMENTS.length;
+}
+function refreshAchButton(){
+  document.getElementById('achBtnCount').textContent = achSummaryText();
+}
+function buildAchievementsHTML(){
+  let html = '';
+  for (const theme of ACH_THEMES){
+    html += '<div class="statSection" role="presentation">' + theme + '</div><div class="statGrid" role="presentation">';
+    for (const a of ACHIEVEMENTS){
+      if (a.theme !== theme) continue;
+      const got = !!achState.earned[a.id];
+      const tag = got ? 'EARNED'
+        : a.goal ? fmtNum(Math.min(a.progress(), a.goal)) + '/' + fmtNum(a.goal) : 'LOCKED';
+      html += '<div class="evoRow achRow' + (got ? ' earned' : '') + '" role="listitem" tabindex="0" data-ach-id="' + a.id + '"'
+        + ' aria-label="' + a.name + ': ' + a.desc + '. ' + tag + '">'
+        + '<div class="eIcon" aria-hidden="true">' + (got ? a.icon : '◌') + '</div>'
+        + '<div class="eBody"><div class="eName">' + a.name + '</div>'
+        + '<div class="eReq">' + a.desc + '</div></div>'
+        + '<div class="eTag">' + tag + '</div></div>';
+    }
+    html += '</div>';
+  }
+  return html;
+}
+function openAchievements(){
+  if (state !== 'start') return;
+  state = 'achievements';
+  achList.innerHTML = buildAchievementsHTML();
+  document.getElementById('achSummary').textContent = achSummaryText() + ' EARNED';
+  Audio_.click();
+  startScreen.classList.add('hidden');
+  achScreen.classList.remove('hidden');
+  achScreen.scrollTop = 0;
+  achList.scrollTop = 0;
+  document.getElementById('closeAchBtn').focus({preventScroll:true});
+}
+function closeAchievements(){
+  if (state !== 'achievements') return;
+  state = 'start';
+  achScreen.classList.add('hidden');
+  startScreen.classList.remove('hidden');
+  Audio_.click();
+  document.getElementById('achBtn').focus({preventScroll:false});
+}
+
 /* ---------- run result ----------
    One screen for both outcomes. A win is not a different set of facts about the run,
    it is the same facts with a different verdict on top — and keeping them in one
@@ -6758,6 +7143,7 @@ function gameOver(won){
     burst(player.x, player.y, '#f9e838', 110, {minSpd:150,maxSpd:700,minLife:0.5,maxLife:1.3,minSize:2,maxSize:6});
     addShake(26);
     Store.set(WIN_KEY + '_' + DIFF.id, '1');
+    if (!achState.wins[player.classId]){ achState.wins[player.classId] = 1; saveAchievements(); }
     unlockClass('echo');
   } else {
     Audio_.gameover();
@@ -6767,6 +7153,8 @@ function gameOver(won){
 
   if (bossKills >= 3) unlockClass('reaper');
   if (player.level >= 12) unlockClass('warden');
+  checkAchievements('all', false);
+  bankCareer();
 
   const bestT = Store.num(bestKey(BEST_TIME_KEY), 0);
   const bestS = Store.num(bestKey(BEST_SCORE_KEY), 0);
@@ -6818,6 +7206,10 @@ function gameOver(won){
   const note = document.getElementById('unlockNote');
   note.classList.toggle('hidden', newUnlocks.length === 0);
   if (newUnlocks.length) note.textContent = '✦ PILOT UNLOCKED: ' + newUnlocks.join(', ') + ' ✦';
+  // everything earned this run, so the ones only a finished run can decide are seen
+  const achNote = document.getElementById('achNote');
+  achNote.classList.toggle('hidden', newAchievements.length === 0);
+  if (newAchievements.length) achNote.textContent = '★ ACHIEVEMENT' + (newAchievements.length > 1 ? 'S' : '') + ': ' + newAchievements.join(', ') + ' ★';
 
   hud.classList.add('hidden');
   gameoverScreen.classList.remove('hidden');
@@ -6934,6 +7326,10 @@ document.getElementById('statsBtn').addEventListener('click', toggleStats);
 document.getElementById('pauseBtn').addEventListener('click', togglePause);
 document.getElementById('fullscreenBtn').addEventListener('click', toggleFullscreen);
 document.getElementById('closeStatsBtn').addEventListener('click', closeStats);
+document.getElementById('achBtn').addEventListener('click', openAchievements);
+document.getElementById('closeAchBtn').addEventListener('click', closeAchievements);
+// a career total must not lose the run in progress when the tab goes away
+window.addEventListener('pagehide', () => { if (player) bankCareer(); });
 
 const muteBtn = document.getElementById('muteBtn');
 function refreshMuteBtn(){ muteBtn.textContent = Audio_.isMuted() ? '🔇' : '🔊'; }
@@ -6959,6 +7355,8 @@ function renderGameToText(){
       hp:Math.max(0,Math.round(e.hp)), maxHp:Math.round(e.maxHp),
       state:e.fuse >= 0 ? 'fusing' : e.windup > 0 ? 'aiming'
         : ((e.lancer || e.bossType === 'juggernaut') ? e.chargeState : 'active'),
+      linked:isLinked(e),
+      ...(e.conduit ? {links:e.links.length} : null),
     }));
   const threats = [];
   for (let i=0;i<EBULLETS.n && threats.length<14;i++){
@@ -6986,7 +7384,7 @@ function renderGameToText(){
     elapsed:Number(elapsed.toFixed(2)), difficulty:DIFF.id, threatLevel,
     player:{
       pilot:player.classId, x:Math.round(player.x), y:Math.round(player.y),
-      hp:Number(player.health.toFixed(1)), maxHp:Math.round(player.maxHealth),
+      hp:Number(player.health.toFixed(1)), maxHp:Number(player.maxHealth.toFixed(1)),
       level:player.level, xp:Number(player.xp.toFixed(1)), xpToNext:player.xpToNext,
       move:{x:Number(player.mvx.toFixed(2)),y:Number(player.mvy.toFixed(2))},
       target:stickyTarget && !stickyTarget.dead ? foeLabel(stickyTarget) : null,
@@ -7008,7 +7406,10 @@ window.render_game_to_text = renderGameToText;
 
 // Narrow debug surface available only to the injected deterministic test client.
 if (manualClock){
+  // A seed pins every later run's simulation stream; `__vt_seed` sets one before load.
+  if (Number.isFinite(window.__vt_seed)) pinnedSeed = window.__vt_seed >>> 0;
   window.__neon_test = {
+    seed:n => { pinnedSeed = Number(n) >>> 0; seedSim(); return pinnedSeed; },
     spawn:(type,opts) => spawnEnemy(type,opts),
     boss:type => spawnBoss(type),
     upgrade:(id,stacks) => {
@@ -7020,6 +7421,8 @@ if (manualClock){
     setUlt:value => { player.ult.charge=clamp(value,0,player.ult.max); player.ult.wasReady=player.ult.charge>=player.ult.max; },
     setHealth:value => { player.health=clamp(value,0,player.maxHealth); },
     setElapsed:value => { elapsed=Math.max(0,value); },
+    // the director picks archetypes by this clock, not `elapsed` (bosses slow it)
+    setSpawnClock:value => { spawnClock=Math.max(0,value); },
     player:() => player,
     enemies:() => enemies,
     bullets:() => BULLETS.items,
@@ -7032,10 +7435,15 @@ if (manualClock){
     levelUp:() => { pendingLevelUps++; levelUpReason='TEST LEVEL'; showLevelUpCard(); },
     clearThreats:purgeActiveThreats,
     snapshot:renderGameToText,
+    // earned ids in registry order, the saved career totals, and this run's unlocks
+    achievements:() => ({ earned:earnedAchievementIds(), totals:{ ...achState.totals },
+                          wins:Object.keys(achState.wins), run:newAchievements.slice() }),
   };
 }
 
 refreshMuteBtn();
+grantRetroAchievements();
+refreshAchButton();
 buildDiffRow();
 buildClassGrid();
 refreshBestLine();
