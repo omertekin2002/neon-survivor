@@ -34,8 +34,10 @@ export async function boot(page) {
   await expect(page.locator('#startBtn')).toBeVisible();
 }
 
-export async function startRun(page) {
+/** Starts a run; a `seed` pins the simulation RNG so the run is reproducible. */
+export async function startRun(page, { seed } = {}) {
   await boot(page);
+  if (seed !== undefined) await page.evaluate(n => window.__neon_test.seed(n), seed);
   await page.locator('#startBtn').click();
   await expect.poll(async () => (await snapshot(page)).mode).toBe('playing');
 }

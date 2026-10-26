@@ -17,6 +17,8 @@ Original prompt: This is a simple html based game, where you pick up upgrades an
 - Final official game-client run reached level 2, 11 kills, and 13.67 simulated seconds in a valid live state; all three screenshots and resource-aware text snapshots were inspected and no console/page errors were recorded.
 - JavaScript parses cleanly and `git diff --check` passes after the implementation pass.
 
+- Made e2e runs reproducible: simulation randomness (spawns, offers, crits, procs, drops, AI timers) now draws from a mulberry32 stream that `resetGame()` reseeds every run, from `Math.random` in live play. In the test client, `window.__neon_test.seed(n)` (or `window.__vt_seed` set before load) pins the seed for every later run. Particles, shake, damage-number jitter and audio use `fxRand`/`Math.random`, so they never advance the simulation stream. `render_game_to_text()` now reports player `maxHp` at the same 0.1 precision as `hp`.
+
 ## TODO / handoff
 
 - No known gameplay or browser regressions remain from this pass.

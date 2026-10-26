@@ -860,11 +860,32 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 120));
 document.addEventListener('fullscreenchange', () => setTimeout(resize, 0));
 
 /* ============================= UTIL ============================= */
-const rand      = (a,b) => a + Math.random()*(b-a);
+/* Two random sources. Everything that changes simulation state (spawns, offers,
+   crits, procs, drops, timers) draws from `simRandom`, a mulberry32 stream that
+   resetGame() reseeds for every run. Live play seeds it from Math.random, so
+   runs vary exactly as before; only the test client can pin the seed. Particles,
+   shake, damage-number jitter and audio use `fxRand`/Math.random instead: their
+   draw counts depend on fxScale, reducedMotion and real time, and must never
+   advance the simulation stream. */
+function mulberry32(seed){
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const freshSeed = () => (Math.random() * 4294967296) >>> 0;
+let pinnedSeed = null;                   // set only through the test client
+let simRandom = mulberry32(freshSeed());
+const seedSim   = () => { simRandom = mulberry32(pinnedSeed === null ? freshSeed() : pinnedSeed); };
+const rand      = (a,b) => a + simRandom()*(b-a);
+const fxRand    = (a,b) => a + Math.random()*(b-a);
 const randInt   = (a,b) => Math.floor(rand(a,b+1));
 const clamp     = (v,a,b) => v < a ? a : (v > b ? b : v);
 const lerp      = (a,b,t) => a + (b-a)*t;
-const pick      = arr => arr[(Math.random()*arr.length)|0];
+const pick      = arr => arr[(simRandom()*arr.length)|0];
 const dist2     = (x1,y1,x2,y2) => { const dx=x1-x2, dy=y1-y2; return dx*dx+dy*dy; };
 const dist      = (x1,y1,x2,y2) => Math.sqrt(dist2(x1,y1,x2,y2));
 const fmtNum    = n => Math.round(n).toLocaleString('en-US');
@@ -1199,12 +1220,12 @@ const Audio_ = (() => {
   let lastHitT = 0, lastDeathT = 0, lastPickupT = 0, lastExecT = 0;
   return {
     unlock(){ ensure(); },
-    shoot(){ tone(rand(680,760), 0.05, 'square', 0.032); },
+    shoot(){ tone(fxRand(680,760), 0.05, 'square', 0.032); },
     hit(){
       const n = performance.now();
       if (n-lastHitT < 60) return;
       lastHitT = n;
-      tone(rand(220,280), 0.045, 'triangle', 0.042);
+      tone(fxRand(220,280), 0.045, 'triangle', 0.042);
     },
     death(){
       const n = performance.now();
@@ -1217,7 +1238,7 @@ const Audio_ = (() => {
       const n = performance.now();
       if (n-lastPickupT < 45) return;
       lastPickupT = n;
-      tone(rand(900,1000), 0.04, 'sine', 0.018);
+      tone(fxRand(900,1000), 0.04, 'sine', 0.018);
     },
     dash(){ tone(520, 0.13, 'sawtooth', 0.05, {sweepTo:1400}); },
     dodge(){ tone(1180, 0.14, 'triangle', 0.055, {sweepTo:1760}); },
@@ -1540,7 +1561,7 @@ let shakeMag = 0, hitStop = 0, hitStopCd = 0, freezeT = 0;
 let shakeAng = 0, shakeT = 0;
 function addShake(m){
   if (m <= shakeMag * 0.55) return;      // let a big punch finish before a small one restarts it
-  if (m >= shakeMag){ shakeAng = rand(0, TAU); shakeT = 0; }
+  if (m >= shakeMag){ shakeAng = fxRand(0, TAU); shakeT = 0; }
   shakeMag = Math.max(shakeMag, m);
 }
 let bossSpawnedCount = 0, bossKills = 0, nextBossTime = 55, bossAlive = false, bossRef = null;
@@ -1718,8 +1739,8 @@ function burst(x, y, color, count, o){
   const minLife=o.minLife||0.25, maxLife=o.maxLife||0.6;
   const minSize=o.minSize||1.5, maxSize=o.maxSize||3.5;
   for (let i=0;i<count;i++){
-    const a = rand(0,TAU), s = rand(minSpd,maxSpd);
-    addParticle(x, y, Math.cos(a)*s, Math.sin(a)*s, rand(minLife,maxLife), rand(minSize,maxSize), color, o.grav||0, o.drag);
+    const a = fxRand(0,TAU), s = fxRand(minSpd,maxSpd);
+    addParticle(x, y, Math.cos(a)*s, Math.sin(a)*s, fxRand(minLife,maxLife), fxRand(minSize,maxSize), color, o.grav||0, o.drag);
   }
 }
 function spawnText(x, y, str, color, size, life){
@@ -2412,7 +2433,7 @@ function rollRarity(){
   const wC = 62;
   const wR = 26 + Math.min(lvl,45)*0.40;
   const wE = 7  + Math.min(lvl,45)*0.38;
-  const r = Math.random() * (wC + wR + wE);
+  const r = simRandom() * (wC + wR + wE);
   if (r < wC) return RARITIES[0];
   if (r < wC + wR) return RARITIES[1];
   return RARITIES[2];
@@ -2456,7 +2477,7 @@ function checkEvoUnlocks(){
 function weightedPick(list){
   let total = 0;
   for (const u of list) total += (u.weight || 5);
-  let r = Math.random() * total;
+  let r = simRandom() * total;
   for (const u of list){
     r -= (u.weight || 5);
     if (r <= 0) return u;
@@ -2472,7 +2493,7 @@ function rollOffers(n){
   // Every ready evolution gets priority, not one random winner. If more recipes
   // are ready than there are slots, the remainder stay guaranteed next draft.
   while (offers.length < n && evos.length){
-    const e = evos.splice((Math.random()*evos.length)|0, 1)[0];
+    const e = evos.splice((simRandom()*evos.length)|0, 1)[0];
     offers.push({ u:e, rarity:{ key:'evo', label:'◆ EVOLUTION ◆', stacks:1, cls:'rar-evo' }, stacks:1 });
   }
   const pool = eligibleUpgrades();
@@ -2692,11 +2713,11 @@ function spawnEdgePos(){
   // clamped candidate can land on-screen, so keep trying rather than popping in visibly
   const pad = 70;
   const sides = [0,1,2,3];
-  for (let i=sides.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; const t=sides[i]; sides[i]=sides[j]; sides[j]=t; }
+  for (let i=sides.length-1;i>0;i--){ const j=(simRandom()*(i+1))|0; const t=sides[i]; sides[i]=sides[j]; sides[j]=t; }
   // Bias spawns into the hemisphere you are driving toward. Without this you can
   // outrun the whole game by picking a direction, and traversal stops meaning
   // anything; with it, moving somewhere reads as advancing into danger.
-  if (player && (player.mvx || player.mvy) && Math.random() < 0.65){
+  if (player && (player.mvx || player.mvy) && simRandom() < 0.65){
     const pref = Math.abs(player.mvx) > Math.abs(player.mvy)
       ? (player.mvx > 0 ? 1 : 3)
       : (player.mvy > 0 ? 2 : 0);
@@ -2761,7 +2782,7 @@ function spawnEnemy(typeKey, opts){
     windup: 0, aimAng: 0,
     chargeState:'idle', chargeTimer: rand(1.1,2.4), chargeDirX:0, chargeDirY:0, chargeHit:false, windupT:0,
     elite: !!eliteMod, eliteMod, dr: eliteMod && eliteMod.dr ? eliteMod.dr : 0,
-    weaveDir: Math.random() < 0.5 ? 1 : -1, weaveT: rand(1.5,3.5),
+    weaveDir: simRandom() < 0.5 ? 1 : -1, weaveT: rand(1.5,3.5),
     fuse: -1, ring: rand(0,TAU),
     lastDashHit: -1, healT: 0,
     summoned: !!opts.summoned,
@@ -2811,9 +2832,9 @@ function updateHazards(dt){
       }
     }
     if (!reducedMotion && fxScale > 0.5 && Math.random() < dt*7 && inView(h.x, h.y, h.r)){
-      const a = rand(0,TAU), d = Math.sqrt(Math.random())*h.r;
-      addParticle(h.x+Math.cos(a)*d, h.y+Math.sin(a)*d, rand(-10,10), rand(-34,-10),
-                  0.5, rand(1.4,2.8), h.color, 0, 0.94);
+      const a = fxRand(0,TAU), d = Math.sqrt(Math.random())*h.r;
+      addParticle(h.x+Math.cos(a)*d, h.y+Math.sin(a)*d, fxRand(-10,10), fxRand(-34,-10),
+                  0.5, fxRand(1.4,2.8), h.color, 0, 0.94);
     }
   }
   compact(hazards);
@@ -2889,7 +2910,7 @@ function spawnBoss(forceKey){
   // affixes start once the roster has stopped being new, and get near-certain late.
   // The finale never wears one — it has four phases of its own and does not need a
   // random modifier deciding how hard the run's one scripted fight is.
-  const affix = (!isFinal && idx >= 2 && Math.random() < clamp(0.3 + (idx-2)*0.16, 0, 0.85)) ? pick(BOSS_AFFIXES) : null;
+  const affix = (!isFinal && idx >= 2 && simRandom() < clamp(0.3 + (idx-2)*0.16, 0, 0.85)) ? pick(BOSS_AFFIXES) : null;
   // Scale on TIME and boss index only — never on player level. Keying boss HP to
   // your own level means every upgrade you take silently buffs the boss, so the
   // fight never gets easier and the reward loop cancels itself out. Riding the
@@ -3043,7 +3064,7 @@ function updateSpawning(dt){
     const eliteChance = Math.min(0.40,
       clamp((spawnClock-45) * 0.0011, 0, 0.20) * pr * (crowded ? 2.2 : starving ? 2 : 1) * DIFF.spawn);
     for (let i=0;i<count;i++){
-      const isElite = spawnClock > 45 && Math.random() < eliteChance;
+      const isElite = spawnClock > 45 && simRandom() < eliteChance;
       spawnEnemy(pick(types), isElite ? {elite:true} : undefined);
     }
     threatLevel = 1 + Math.floor(spawnClock/20);
@@ -3122,7 +3143,7 @@ function choosePickupKind(){
   ];
   let total = 0;
   for (let i=0;i<weighted.length;i++) total += weighted[i][1];
-  let r = Math.random()*total;
+  let r = simRandom()*total;
   for (let i=0;i<weighted.length;i++){
     r -= weighted[i][1];
     if (r <= 0) return weighted[i][0];
@@ -3157,7 +3178,7 @@ function openCrate(c){
   Audio_.crate();
   addShake(6);
   burst(c.x, c.y, '#f9e838', 28, {minSpd:80,maxSpd:280,minLife:0.3,maxLife:0.6});
-  const r = Math.random();
+  const r = simRandom();
   if (r < 0.30){
     // a real choice, not a random stat silently bolted on behind your back
     pendingLevelUps++;
@@ -3171,7 +3192,7 @@ function openCrate(c){
     grantXP(Math.max(10, player.xpToNext*0.3));
     spawnText(c.x, c.y-22, 'CACHE: +HP +XP', '#39ff88', 15, 1.3);
   } else {
-    if (Math.random() < 0.6){ player.rerolls++; spawnText(c.x, c.y-22, 'CACHE: +1 REROLL', '#05f2f2', 15, 1.3); }
+    if (simRandom() < 0.6){ player.rerolls++; spawnText(c.x, c.y-22, 'CACHE: +1 REROLL', '#05f2f2', 15, 1.3); }
     else { player.banishes++; spawnText(c.x, c.y-22, 'CACHE: +1 BANISH', '#c86bff', 15, 1.3); }
     grantXP(10);
   }
@@ -3261,7 +3282,7 @@ function updateNode(dt){
       for (let i=0;i<n;i++){
         const a = rand(0,TAU);
         spawnEnemy(pick(types), { pos:{ x:node.x+Math.cos(a)*rand(260,420), y:node.y+Math.sin(a)*rand(260,420) },
-                                  elite: Math.random() < 0.10 });
+                                  elite: simRandom() < 0.10 });
       }
     }
     if (node.prog >= 1){
@@ -3635,8 +3656,8 @@ function firePlayerWeapon(){
   if (!reducedMotion){
     for (let i=0;i<2;i++){
       addParticle(player.x + ca*(player.radius+4), player.y + sa*(player.radius+4),
-                  -ca*rand(30,90) + rand(-40,40), -sa*rand(30,90) + rand(-40,40),
-                  0.13, rand(1.6,3), SHOT_COLOR, 0, 0.86);
+                  -ca*fxRand(30,90) + fxRand(-40,40), -sa*fxRand(30,90) + fxRand(-40,40),
+                  0.13, fxRand(1.6,3), SHOT_COLOR, 0, 0.86);
     }
   }
   return true;
@@ -3716,10 +3737,10 @@ function damageEnemy(e, dmg, isCrit, quiet){
       hitStop = Math.max(hitStop, 0.022);
     }
   } else if (!quiet && e.boss){
-    spawnText(e.x + rand(-14,14), e.y-e.radius-4, String(Math.round(dmg)), '#ffffff', 12, 0.42);
+    spawnText(e.x + fxRand(-14,14), e.y-e.radius-4, String(Math.round(dmg)), '#ffffff', 12, 0.42);
   } else if (!quiet && dmgTextBudget > 0){
     dmgTextBudget--;
-    spawnText(e.x + rand(-8,8), e.y-e.radius-4, String(Math.round(dmg)), '#cfe3f2', 11, 0.38);
+    spawnText(e.x + fxRand(-8,8), e.y-e.radius-4, String(Math.round(dmg)), '#cfe3f2', 11, 0.38);
   }
 
   if (!quiet) Audio_.hit();
@@ -3772,7 +3793,7 @@ function killEnemy(e){
     // A guaranteed powerup per elite was fine when elites were rare. Once the
     // director learned to spawn them in bunches it carpeted the field in free
     // nukes and freezes, and a resource you trip over stops being a reward.
-    if (Math.random() < 0.45) spawnPickup(e.x, e.y);
+    if (simRandom() < 0.45) spawnPickup(e.x, e.y);
     spawnGem(e.x + rand(-12,12), e.y + rand(-12,12), Math.round(e.xp*0.5));
     addScore(300);
     hitStop = Math.max(hitStop, 0.05);
@@ -4028,7 +4049,7 @@ function updatePlayer(dt){
     player.x += d.dirX * player.speed * d.power * dt;
     player.y += d.dirY * player.speed * d.power * dt;
     // afterimage ribbon
-    addParticle(player.x, player.y, rand(-25,25), rand(-25,25), 0.28, rand(4,7), '#05f2f2', 0, 0.9);
+    addParticle(player.x, player.y, fxRand(-25,25), fxRand(-25,25), 0.28, fxRand(4,7), '#05f2f2', 0, 0.9);
     /* Perfect dodge only ever counted bullets, so the three attacks the dash was
        BUILT to answer — a lancer's committed lane, a juggernaut's charge, a lit
        bomber — paid nothing for threading them. Those are the bravest dodges in
@@ -4115,8 +4136,8 @@ function updatePlayer(dt){
   player.trailT -= dt;
   if ((mvx || mvy) && player.trailT <= 0 && d.t <= 0){
     player.trailT = 0.035;
-    addParticle(player.x, player.y, -mvx*32 + rand(-10,10), -mvy*32 + rand(-10,10),
-                0.34, rand(2,4), player.classColor, 0, 0.94);
+    addParticle(player.x, player.y, -mvx*32 + fxRand(-10,10), -mvy*32 + fxRand(-10,10),
+                0.34, fxRand(2,4), player.classColor, 0, 0.94);
   }
 
   /* ---- weapon ---- */
@@ -4313,7 +4334,7 @@ function updateEnemies(dt){
         damageEnemy(e, e.burnDps * 0.125, false, true);
       }
       if (e.dead) continue;
-      if (Math.random() < dt*8) addParticle(e.x+rand(-8,8), e.y+rand(-8,8), rand(-15,15), rand(-50,-15), 0.4, rand(1.5,3), '#ff8a2e', 0, 0.95);
+      if (Math.random() < dt*8) addParticle(e.x+fxRand(-8,8), e.y+fxRand(-8,8), fxRand(-15,15), fxRand(-50,-15), 0.4, fxRand(1.5,3), '#ff8a2e', 0, 0.95);
     }
     // a held telegraph would keep glowing while its owner is frozen mid-aim
     if (e.stun > 0){ e.stun -= dt; e._vx = 0; e._vy = 0; e.windup = 0; continue; }
@@ -4396,7 +4417,7 @@ function updateEnemies(dt){
       } else if (e.chargeState === 'run'){
         e.x += e.chargeDirX * espd * 5.2 * dt;
         e.y += e.chargeDirY * espd * 5.2 * dt;
-        if (!reducedMotion) addParticle(e.x, e.y, rand(-25,25), rand(-25,25), 0.24, rand(2,4), '#ff2020', 0, 0.9);
+        if (!reducedMotion) addParticle(e.x, e.y, fxRand(-25,25), fxRand(-25,25), 0.24, fxRand(2,4), '#ff2020', 0, 0.9);
         e.chargeTimer -= dt;
         if (!e.chargeHit && d < e.radius + player.radius + 10){
           e.chargeHit = true;
@@ -4595,7 +4616,7 @@ function updateBoss(e, dt, dx, dy, d){
       if (e.chargeTimer <= 0){ e.chargeState = 'dash'; e.chargeTimer = 0.45; }
     } else if (e.chargeState === 'dash'){
       e.x += e.chargeDirX*bspd*6.5*dt; e.y += e.chargeDirY*bspd*6.5*dt;
-      addParticle(e.x, e.y, rand(-30,30), rand(-30,30), 0.3, rand(3,6), '#ff8a2e', 0, 0.92);
+      addParticle(e.x, e.y, fxRand(-30,30), fxRand(-30,30), 0.3, fxRand(3,6), '#ff8a2e', 0, 0.92);
       e.chargeTimer -= dt;
       if (!e.chargeHit && d < e.radius + player.radius + 12){
         e.chargeHit = true;
@@ -4623,7 +4644,7 @@ function updateBoss(e, dt, dx, dy, d){
       const cnt = 3 + Math.round(e.enrage*2);
       for (let i=0;i<cnt;i++){
         const a = (TAU/cnt)*i;
-        spawnEnemy(Math.random() < 0.5 ? 'grunt' : 'runner',
+        spawnEnemy(simRandom() < 0.5 ? 'grunt' : 'runner',
                    { pos:{x:e.x+Math.cos(a)*52, y:e.y+Math.sin(a)*52}, summoned:true });
       }
     }
@@ -4791,7 +4812,7 @@ function updateBullets(dt){
           b.hits.push(e);
           if (b.hits.length > 16) b.hits.shift();
 
-          const isCrit = Math.random() < player.critChance;
+          const isCrit = simRandom() < player.critChance;
           const hitDmg = isCrit ? b.dmg * player.critMult : b.dmg;
 
           // impact shove — light, mass-scaled, none on bosses. Costs two lines and
@@ -4808,7 +4829,7 @@ function updateBullets(dt){
           if (player.explosive){
             triggerExplosion(b.x, b.y, hitDmg*player.explosive.dmgPct, player.explosive.radius, e);
           }
-          if (player.chain && Math.random() < player.chain.chance){
+          if (player.chain && simRandom() < player.chain.chance){
             triggerChain(e, hitDmg, player.chain.jumps, player.chain.range, player.chain.falloff, b.hits);
           }
 
@@ -6290,6 +6311,7 @@ function unlockClass(id){
 
 function resetGame(){
   clearToasts();
+  seedSim();
   simAccumulator = 0;
   manualAccumulator = 0;
   DIFF = diffById(selectedDifficulty);
@@ -6986,7 +7008,7 @@ function renderGameToText(){
     elapsed:Number(elapsed.toFixed(2)), difficulty:DIFF.id, threatLevel,
     player:{
       pilot:player.classId, x:Math.round(player.x), y:Math.round(player.y),
-      hp:Number(player.health.toFixed(1)), maxHp:Math.round(player.maxHealth),
+      hp:Number(player.health.toFixed(1)), maxHp:Number(player.maxHealth.toFixed(1)),
       level:player.level, xp:Number(player.xp.toFixed(1)), xpToNext:player.xpToNext,
       move:{x:Number(player.mvx.toFixed(2)),y:Number(player.mvy.toFixed(2))},
       target:stickyTarget && !stickyTarget.dead ? foeLabel(stickyTarget) : null,
@@ -7008,7 +7030,10 @@ window.render_game_to_text = renderGameToText;
 
 // Narrow debug surface available only to the injected deterministic test client.
 if (manualClock){
+  // A seed pins every later run's simulation stream; `__vt_seed` sets one before load.
+  if (Number.isFinite(window.__vt_seed)) pinnedSeed = window.__vt_seed >>> 0;
   window.__neon_test = {
+    seed:n => { pinnedSeed = Number(n) >>> 0; seedSim(); return pinnedSeed; },
     spawn:(type,opts) => spawnEnemy(type,opts),
     boss:type => spawnBoss(type),
     upgrade:(id,stacks) => {
