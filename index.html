@@ -425,6 +425,17 @@
   .evoRow.ready .eTag{ color:var(--rar-evo); box-shadow:0 0 12px rgba(249,232,56,0.5); }
   .evoRow.locked .eTag{ color:#5b7185; }
 
+  /* achievements: the same row language as the evolution tracker */
+  #achScreen{ z-index:6; }
+  #achSummary{ margin:0 0 10px; }
+  .achRow{ outline:none; }
+  .achRow:focus-visible{ outline:2px solid #fff; outline-offset:-2px; border-radius:6px; }
+  .achRow .eIcon{ color:#5b7185; }
+  .achRow.earned .eIcon{ color:var(--yellow); text-shadow:0 0 10px rgba(249,232,56,0.6); }
+  .achRow.earned .eTag{ color:var(--green); }
+  .achRow:not(.earned) .eName{ color:#a9c3d8; }
+  .achRow:not(.earned) .eTag{ color:#5b7185; }
+
   /* ---------- level up ---------- */
   #levelupScreen{ z-index:5; }
   .cards{ display:flex; gap:12px; flex-wrap:wrap; justify-content:center; margin-top:14px; }
@@ -723,7 +734,17 @@
       <div class="touchControls"><span><b>DRAG</b> anywhere left to move</span><span><b>⇢</b> dash</span><span><b>◉</b> overload</span></div>
       <div class="bestscore" id="bestScoreLine">BEST — TIME 00:00 &nbsp;·&nbsp; SCORE 0</div>
       <button class="btn" id="startBtn">▶ START RUN</button>
+      <button class="btn secondary small" id="achBtn" style="margin-top:12px;">★ ACHIEVEMENTS <span id="achBtnCount">0/0</span></button>
     </div>
+  </div>
+
+  <!-- ACHIEVEMENTS SCREEN -->
+  <div id="achScreen" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Achievements">
+    <div class="subtitle" style="margin-bottom:4px;">SERVICE RECORD</div>
+    <div class="title" style="font-size:clamp(22px,5vw,40px);">ACHIEVEMENTS</div>
+    <div class="bestscore" id="achSummary">0 / 0 EARNED</div>
+    <div class="panel statPanel" id="achList" role="list"></div>
+    <button class="btn" id="closeAchBtn">CLOSE</button>
   </div>
 
   <!-- LEVEL UP SCREEN -->
@@ -787,6 +808,7 @@
       <div class="buildStrip" id="goBuildStrip"></div>
       <div id="nextUnlock" class="bestscore" style="margin-top:10px;"></div>
       <div id="unlockNote" class="bestscore hidden" style="margin-top:10px;"></div>
+      <div id="achNote" class="bestscore hidden" style="margin-top:10px;"></div>
       <button class="btn hidden" id="continueBtn">▶▶ CONTINUE — ENDLESS</button>
       <button class="btn" id="restartBtn">⟲ TRY AGAIN</button>
       <button class="btn secondary" id="menuBtn">◀ CHANGE PILOT</button>
@@ -1253,6 +1275,7 @@ const Audio_ = (() => {
     dashFail(){ tone(180, 0.07, 'square', 0.03, {sweepTo:120}); },
     levelup(){ [0,0.09,0.18].forEach((t,i)=> setTimeout(()=>tone(520+i*160, 0.15, 'square', 0.055), t*1000)); },
     evolve(){ [0,0.1,0.2,0.32].forEach((t,i)=> setTimeout(()=>tone(440+i*180, 0.22, 'sawtooth', 0.06), t*1000)); },
+    achievement(){ [0,0.08,0.16].forEach((t,i)=> setTimeout(()=>tone(990+i*250, 0.12, 'triangle', 0.045), t*1000)); },
     boss(){ tone(90, 0.6, 'sawtooth', 0.09, {sweepTo:60}); noise(0.5, 0.03); },
     bossDown(){ [0,0.12,0.26].forEach((t,i)=> setTimeout(()=>tone(260-i*60, 0.5, 'sawtooth', 0.08, {sweepTo:50}), t*1000)); },
     gameover(){ stopMusic(); tone(300, 0.8, 'sawtooth', 0.08, {sweepTo:40}); },
@@ -1353,6 +1376,7 @@ window.addEventListener('keydown', e => {
 
   if (k === 'p' || k === 'escape'){
     if (state === 'stats') closeStats();
+    else if (state === 'achievements') closeAchievements();
     else if (state === 'playing' || state === 'paused') togglePause();
   }
   if (k === 'i'){
@@ -1493,10 +1517,11 @@ function readGamepad(out){
    keyboard navigation so a pad can finish the whole run without a mouse. */
 let padMenuDir = 0, padMenuAccept = false, padMenuBack = false, padMenuPause = false;
 function menuPadTargets(){
-  if (state === 'start') return [...document.querySelectorAll('#diffRow .diffBtn, #classGrid .classCard:not(.locked), #startBtn')];
+  if (state === 'start') return [...document.querySelectorAll('#diffRow .diffBtn, #classGrid .classCard:not(.locked), #startBtn, #achBtn')];
   if (state === 'levelup') return [...document.querySelectorAll('#cardsWrap .card, #rerollBtn:not(:disabled), #banishBtn:not(:disabled), #skipBtn:not(:disabled)')];
   if (state === 'paused') return [...document.querySelectorAll('#resumeBtn, #loadoutFromPauseBtn, #retryFromPauseBtn, #restartFromPauseBtn')];
   if (state === 'stats') return [document.getElementById('closeStatsBtn')];
+  if (state === 'achievements') return [...document.querySelectorAll('#achList .achRow, #closeAchBtn')];
   if (state === 'gameover') return [...document.querySelectorAll('#continueBtn:not(.hidden), #restartBtn, #menuBtn')];
   return [];
 }
@@ -1506,6 +1531,7 @@ function defaultPadTarget(targets){
   const preferred = state === 'start' ? document.getElementById('startBtn')
     : state === 'paused' ? document.getElementById('resumeBtn')
     : state === 'stats' ? document.getElementById('closeStatsBtn')
+    : state === 'achievements' ? document.getElementById('closeAchBtn')
     : state === 'gameover' ? (document.querySelector('#continueBtn:not(.hidden)') || document.getElementById('restartBtn'))
     : targets[0];
   return targets.includes(preferred) ? preferred : targets[0];
@@ -1552,6 +1578,7 @@ function pollGamepadMenus(){
     if (back && !padMenuBack){
       if (state === 'paused'){ padDash = true; togglePause(); }
       else if (state === 'stats') closeStats();
+      else if (state === 'achievements') closeAchievements();
     }
   }
 
@@ -1986,6 +2013,129 @@ const CLASSES = [
 ];
 const classById = id => CLASSES.find(c => c.id === id) || CLASSES[0];
 const isUnlocked = c => !c.unlock || Store.get(c.unlock.key,'0') === '1';
+
+/* ============================= ACHIEVEMENTS =============================
+   Long-term goals for a player who has already unlocked the roster. Every check
+   reads stats the game tracks anyway and none of them touches simRandom, so a
+   seeded run replays identically with or without them.
+   `on` says when a check runs: 'tick' (the default) every simulation tick, so it
+   toasts the moment it is met; 'unlock' when a pilot unlocks; 'end' only on the
+   result screen, where the whole run is known. Every check also runs at run end.
+   `goal` + `progress` mark a counted goal, shown as n/goal in the panel; `retro`
+   grants it from saves made before achievements existed. `reward` is reserved
+   for gameplay unlocks in the next slice and is unused for now. */
+const ACH_KEY = 'ns_ach_v1';
+const ACH_THEMES = ['FIRST STEPS', 'MASTERY', 'SKILL', 'ENDURANCE', 'CAREER'];
+const evoCount = () => Object.keys(player.evolved).length;
+const hasWin = id => Store.get(WIN_KEY + '_' + id, '0') === '1';
+const lockedPilots = () => CLASSES.filter(c => c.unlock);
+const bestTimeAny = () => Math.max(0, ...DIFFICULTIES.map(d =>
+  Store.num(BEST_TIME_KEY + (d.id === 'veteran' ? '' : '_' + d.id), 0)));
+const ACHIEVEMENTS = [
+  { id:'first_boss', theme:'FIRST STEPS', icon:'◆', name:'GIANT SLAYER', desc:'Destroy a boss',
+    check:() => bossKills >= 1,
+    retro:() => isUnlocked(classById('reaper')) || DIFFICULTIES.some(d => hasWin(d.id)) },
+  { id:'first_evo', theme:'FIRST STEPS', icon:'✦', name:'EVOLVED', desc:'Evolve an upgrade',
+    check:() => evoCount() >= 1 },
+  { id:'level_10', theme:'FIRST STEPS', icon:'▲', name:'POWER SPIKE', desc:'Reach level 10 in a run',
+    check:() => player.level >= 10, retro:() => isUnlocked(classById('warden')) },
+  { id:'first_node', theme:'FIRST STEPS', icon:'◎', name:'NODE RUNNER', desc:'Secure an Overcharge Node',
+    check:() => nodesHeld >= 1 },
+  { id:'survive_5', theme:'FIRST STEPS', icon:'◷', name:'STILL STANDING', desc:'Survive 5:00 in a run',
+    check:() => elapsed >= 300, retro:() => bestTimeAny() >= 300 },
+
+  ...DIFFICULTIES.map(d => ({
+    id:'win_' + d.id, theme:'MASTERY', icon:'★', name:'PURGED · ' + d.name,
+    desc:'Destroy THE ARCHITECT on ' + d.name, on:'end',
+    check:() => wonRun && DIFF.id === d.id, retro:() => hasWin(d.id) })),
+  { id:'pilot_unlock', theme:'MASTERY', icon:'⛨', name:'NEW BLOOD', desc:'Unlock a new pilot', on:'unlock',
+    check:() => lockedPilots().some(isUnlocked), retro:() => lockedPilots().some(isUnlocked) },
+  { id:'full_roster', theme:'MASTERY', icon:'⟡', name:'FULL ROSTER', desc:'Unlock every pilot', on:'unlock',
+    goal:3, progress:() => lockedPilots().filter(isUnlocked).length,
+    retro:() => lockedPilots().every(isUnlocked) },
+  { id:'ace', theme:'MASTERY', icon:'♛', name:'ACE OF ACES', desc:'Destroy THE ARCHITECT with every pilot', on:'end',
+    goal:CLASSES.length, progress:() => CLASSES.filter(c => achState.wins[c.id]).length },
+
+  { id:'dodge_25', theme:'SKILL', icon:'⇢', name:'BULLET DANCER', desc:'Land 25 perfect dodges in one run',
+    check:() => dodgeCount >= 25 },
+  { id:'combo_100', theme:'SKILL', icon:'✺', name:'CHAIN REACTION', desc:'Reach a 100-kill combo',
+    check:() => bestCombo >= 100 },
+  { id:'flawless_boss', theme:'SKILL', icon:'◇', name:'UNTOUCHABLE', desc:'Destroy a boss without losing hull during its fight',
+    check:() => flawlessBoss },
+  { id:'triple_evo', theme:'SKILL', icon:'✧', name:'APEX BUILD', desc:'Evolve 3 upgrades in one run',
+    check:() => evoCount() >= 3 },
+  { id:'nodes_5', theme:'SKILL', icon:'⌖', name:'GRID HOLDER', desc:'Secure 5 Overcharge Nodes in one run',
+    check:() => nodesHeld >= 5 },
+
+  { id:'endless_15', theme:'ENDURANCE', icon:'∞', name:'OVERTIME', desc:'Reach 15:00 in Endless',
+    check:() => endless && elapsed >= 900 },
+  { id:'endless_20', theme:'ENDURANCE', icon:'∞', name:'NO END IN SIGHT', desc:'Reach 20:00 in Endless',
+    check:() => endless && elapsed >= 1200 },
+
+  { id:'bosses_25', theme:'CAREER', icon:'☠', name:'BOSS HUNTER', desc:'Destroy 25 bosses across all runs',
+    goal:25, progress:() => careerTotal('bosses') },
+  { id:'kills_10k', theme:'CAREER', icon:'⚔', name:'EXTERMINATOR', desc:'Destroy 10,000 enemies across all runs',
+    goal:10000, progress:() => careerTotal('kills') },
+];
+const achMet = a => a.check ? a.check() : a.progress() >= a.goal;
+
+/* One JSON key, parsed defensively: anything malformed falls back to a fresh
+   record field by field, and unknown ids are dropped. */
+function loadAchievements(){
+  const out = { earned:{}, totals:{ kills:0, bosses:0 }, wins:{} };
+  let raw = null;
+  try { raw = JSON.parse(Store.get(ACH_KEY, 'null')); } catch(e){ raw = null; }
+  if (!raw || typeof raw !== 'object') return out;
+  if (raw.earned && typeof raw.earned === 'object')
+    for (const a of ACHIEVEMENTS) if (raw.earned[a.id] === 1) out.earned[a.id] = 1;
+  if (raw.totals && typeof raw.totals === 'object')
+    for (const k in out.totals){ const v = Number(raw.totals[k]); if (Number.isFinite(v) && v > 0) out.totals[k] = Math.floor(v); }
+  if (raw.wins && typeof raw.wins === 'object')
+    for (const c of CLASSES) if (raw.wins[c.id] === 1) out.wins[c.id] = 1;
+  return out;
+}
+const achState = loadAchievements();
+const saveAchievements = () => Store.set(ACH_KEY, JSON.stringify(achState));
+
+/* Career counters bank a run's kills and bosses at its end (and on boss kills,
+   abandon and page hide) rather than on every kill. Until then a run's share is
+   counted live from the delta, so a career goal can still pop mid-run. */
+const achBanked = { kills:0, bosses:0 };
+const runCareer = k => k === 'kills' ? killCount : bossKills;
+const careerTotal = k => achState.totals[k] + Math.max(0, runCareer(k) - achBanked[k]);
+function bankCareer(){
+  let changed = false;
+  for (const k in achBanked){
+    const d = runCareer(k) - achBanked[k];
+    if (d > 0){ achState.totals[k] += d; changed = true; }
+    achBanked[k] = runCareer(k);
+  }
+  if (changed) saveAchievements();
+}
+
+let newAchievements = [], flawlessBoss = false;
+function checkAchievements(on, announce){
+  let earned = false;
+  for (const a of ACHIEVEMENTS){
+    if (achState.earned[a.id] || (on !== 'all' && (a.on || 'tick') !== on) || !achMet(a)) continue;
+    achState.earned[a.id] = 1;
+    earned = true;
+    newAchievements.push(a.name);
+    if (announce){ showToast('★ ACHIEVEMENT — ' + a.name + ' · ' + a.desc, 1); Audio_.achievement(); }
+  }
+  if (earned) saveAchievements();
+}
+// Silent credit for what saves from before achievements already prove.
+function grantRetroAchievements(){
+  let earned = false;
+  for (const a of ACHIEVEMENTS){
+    if (achState.earned[a.id] || !a.retro || !a.retro()) continue;
+    achState.earned[a.id] = 1;
+    earned = true;
+  }
+  if (earned) saveAchievements();
+}
+const earnedAchievementIds = () => ACHIEVEMENTS.filter(a => achState.earned[a.id]).map(a => a.id);
 
 function newPlayer(cls){
   const s = cls.stats;
@@ -3041,6 +3191,7 @@ function spawnBoss(forceKey){
     summonTimer: rand(4,5.5),
     telegraphTimer: rand(3,4.5), telegraph:null,
     ringWind: 0,
+    cleanFight: true,    // no hull lost since it spawned (UNTOUCHABLE)
   };
   if (affix) affix.apply(b);
   enemies.push(b);
@@ -3888,6 +4039,8 @@ function killEnemy(e){
   if (e.boss){
     bossAlive = false;
     bossKills++;
+    if (e.cleanFight) flawlessBoss = true;
+    bankCareer();
     if (bossKills >= 3) unlockClass('reaper');
     if (bossRef === e) bossRef = null;
     // Bosses are the run's only named beats, and the old spacing pushed them
@@ -3921,6 +4074,9 @@ function killEnemy(e){
    melee-range builds stay viable. Its rate limit is the per-enemy touch
    cooldown plus contactGrace, both owned by the caller. */
 let contactGrace = 0;
+function taintBossFights(){
+  for (let i=0;i<enemies.length;i++) if (enemies[i].boss) enemies[i].cleanFight = false;
+}
 function contactDamage(amount, sx, sy, src){
   if (state !== 'playing') return;
   if (player.dash.t > 0) return;
@@ -3939,6 +4095,7 @@ function contactDamage(amount, sx, sy, src){
 
   amount *= (1 - player.armor);
   player.health -= amount;
+  taintBossFights();
   player.hitFlashT = 0.13;
   addShake(6);
   comboCount = Math.floor(comboCount * 0.5);
@@ -3970,6 +4127,7 @@ function damagePlayer(amount, ignoreIFrames, sx, sy, src){
 
   amount *= (1 - player.armor);
   player.health -= amount;
+  taintBossFights();
   player.invT = 0.55;
   player.hitFlashT = 0.15;
   addShake(9);
@@ -5263,6 +5421,7 @@ function stepWorld(gdt, rdt){
   if (comboTimer > 0){ comboTimer -= gdt; if (comboTimer <= 0) comboCount = 0; }
   // guard on state: dying inside this tick must not raise a card over the death screen
   if (pendingLevelUps > 0 && state === 'playing') showLevelUpCard();
+  checkAchievements('tick', true);
 
   Audio_.setIntensity(bossAlive ? 1 : clamp(enemies.length/60, 0.15, 0.9));
   updateHUD();
@@ -6114,7 +6273,7 @@ function render(){
   ctx.restore();
 
   /* ---- screen space ---- */
-  if (state !== 'start'){
+  if (state !== 'start' && state !== 'achievements'){
     // Elites are the one off-screen thing that can kill you before you ever see
     // it — a SWIFT elite closes from outside the viewport faster than you can
     // react to the glow. Capped at three so the edge never turns into a wreath.
@@ -6409,7 +6568,7 @@ function coverGameSurface(covered){
 }
 
 function modalFocusables(screen){
-  return [...screen.querySelectorAll('button:not(:disabled), [role="button"][tabindex="0"], a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')]
+  return [...screen.querySelectorAll('button:not(:disabled), [role="button"][tabindex="0"], .achRow[tabindex="0"], a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')]
     .filter(el => !el.classList.contains('hidden') && el.getClientRects().length > 0);
 }
 
@@ -6424,7 +6583,7 @@ function trapModalTab(e){
     e.preventDefault(); first.focus();
   }
 }
-for (const screen of [pauseScreen, levelupScreen, statsScreen, gameoverScreen]) screen.addEventListener('keydown', trapModalTab);
+for (const screen of [pauseScreen, levelupScreen, statsScreen, gameoverScreen, document.getElementById('achScreen')]) screen.addEventListener('keydown', trapModalTab);
 
 function resetPauseConfirm(){
   pauseConfirmId = '';
@@ -6452,9 +6611,12 @@ function unlockClass(id){
   newUnlocks.push(c.name);
   showToast('PILOT UNLOCKED — ' + c.name);
   Audio_.evolve();
+  checkAchievements('unlock', state === 'playing');
 }
 
 function resetGame(){
+  // an abandoned or restarted run still counts toward the career totals
+  if (player) bankCareer();
   clearToasts();
   seedSim();
   simAccumulator = 0;
@@ -6487,6 +6649,8 @@ function resetGame(){
   evoAnnounced = {}; statsFromPause = false;
   Audio_.setBossMode(false);
   newUnlocks = [];
+  newAchievements = []; flawlessBoss = false;
+  achBanked.kills = 0; achBanked.bosses = 0;
   for (const k in hudPrev) hudPrev[k] = (typeof hudPrev[k] === 'number') ? -1 : '';
 
   generatePylons();
@@ -6548,6 +6712,7 @@ function continueRun(){
 
 function toMenu(){
   resetPauseConfirm();
+  if (player) bankCareer();
   state = 'start';
   clearToasts();
   hud.classList.add('hidden');
@@ -6562,6 +6727,7 @@ function toMenu(){
   buildDiffRow();
   buildClassGrid();
   refreshBestLine();
+  refreshAchButton();
   Audio_.stopMusic();
   document.getElementById('startBtn').focus({preventScroll:false});
 }
@@ -6898,6 +7064,58 @@ function toggleStats(){
   else if (state === 'stats') closeStats();
 }
 
+/* ---------- achievements panel ----------
+   Opened from the menu only. Rows are focusable so Tab and the pad walk the list
+   and scroll it into view; closing returns focus to the menu button. */
+const achScreen = document.getElementById('achScreen');
+const achList   = document.getElementById('achList');
+function achSummaryText(){
+  return earnedAchievementIds().length + '/' + ACHIEVEMENTS.length;
+}
+function refreshAchButton(){
+  document.getElementById('achBtnCount').textContent = achSummaryText();
+}
+function buildAchievementsHTML(){
+  let html = '';
+  for (const theme of ACH_THEMES){
+    html += '<div class="statSection" role="presentation">' + theme + '</div><div class="statGrid" role="presentation">';
+    for (const a of ACHIEVEMENTS){
+      if (a.theme !== theme) continue;
+      const got = !!achState.earned[a.id];
+      const tag = got ? 'EARNED'
+        : a.goal ? fmtNum(Math.min(a.progress(), a.goal)) + '/' + fmtNum(a.goal) : 'LOCKED';
+      html += '<div class="evoRow achRow' + (got ? ' earned' : '') + '" role="listitem" tabindex="0" data-ach-id="' + a.id + '"'
+        + ' aria-label="' + a.name + ': ' + a.desc + '. ' + tag + '">'
+        + '<div class="eIcon" aria-hidden="true">' + (got ? a.icon : '◌') + '</div>'
+        + '<div class="eBody"><div class="eName">' + a.name + '</div>'
+        + '<div class="eReq">' + a.desc + '</div></div>'
+        + '<div class="eTag">' + tag + '</div></div>';
+    }
+    html += '</div>';
+  }
+  return html;
+}
+function openAchievements(){
+  if (state !== 'start') return;
+  state = 'achievements';
+  achList.innerHTML = buildAchievementsHTML();
+  document.getElementById('achSummary').textContent = achSummaryText() + ' EARNED';
+  Audio_.click();
+  startScreen.classList.add('hidden');
+  achScreen.classList.remove('hidden');
+  achScreen.scrollTop = 0;
+  achList.scrollTop = 0;
+  document.getElementById('closeAchBtn').focus({preventScroll:true});
+}
+function closeAchievements(){
+  if (state !== 'achievements') return;
+  state = 'start';
+  achScreen.classList.add('hidden');
+  startScreen.classList.remove('hidden');
+  Audio_.click();
+  document.getElementById('achBtn').focus({preventScroll:false});
+}
+
 /* ---------- run result ----------
    One screen for both outcomes. A win is not a different set of facts about the run,
    it is the same facts with a different verdict on top — and keeping them in one
@@ -6925,6 +7143,7 @@ function gameOver(won){
     burst(player.x, player.y, '#f9e838', 110, {minSpd:150,maxSpd:700,minLife:0.5,maxLife:1.3,minSize:2,maxSize:6});
     addShake(26);
     Store.set(WIN_KEY + '_' + DIFF.id, '1');
+    if (!achState.wins[player.classId]){ achState.wins[player.classId] = 1; saveAchievements(); }
     unlockClass('echo');
   } else {
     Audio_.gameover();
@@ -6934,6 +7153,8 @@ function gameOver(won){
 
   if (bossKills >= 3) unlockClass('reaper');
   if (player.level >= 12) unlockClass('warden');
+  checkAchievements('all', false);
+  bankCareer();
 
   const bestT = Store.num(bestKey(BEST_TIME_KEY), 0);
   const bestS = Store.num(bestKey(BEST_SCORE_KEY), 0);
@@ -6985,6 +7206,10 @@ function gameOver(won){
   const note = document.getElementById('unlockNote');
   note.classList.toggle('hidden', newUnlocks.length === 0);
   if (newUnlocks.length) note.textContent = '✦ PILOT UNLOCKED: ' + newUnlocks.join(', ') + ' ✦';
+  // everything earned this run, so the ones only a finished run can decide are seen
+  const achNote = document.getElementById('achNote');
+  achNote.classList.toggle('hidden', newAchievements.length === 0);
+  if (newAchievements.length) achNote.textContent = '★ ACHIEVEMENT' + (newAchievements.length > 1 ? 'S' : '') + ': ' + newAchievements.join(', ') + ' ★';
 
   hud.classList.add('hidden');
   gameoverScreen.classList.remove('hidden');
@@ -7101,6 +7326,10 @@ document.getElementById('statsBtn').addEventListener('click', toggleStats);
 document.getElementById('pauseBtn').addEventListener('click', togglePause);
 document.getElementById('fullscreenBtn').addEventListener('click', toggleFullscreen);
 document.getElementById('closeStatsBtn').addEventListener('click', closeStats);
+document.getElementById('achBtn').addEventListener('click', openAchievements);
+document.getElementById('closeAchBtn').addEventListener('click', closeAchievements);
+// a career total must not lose the run in progress when the tab goes away
+window.addEventListener('pagehide', () => { if (player) bankCareer(); });
 
 const muteBtn = document.getElementById('muteBtn');
 function refreshMuteBtn(){ muteBtn.textContent = Audio_.isMuted() ? '🔇' : '🔊'; }
@@ -7206,10 +7435,15 @@ if (manualClock){
     levelUp:() => { pendingLevelUps++; levelUpReason='TEST LEVEL'; showLevelUpCard(); },
     clearThreats:purgeActiveThreats,
     snapshot:renderGameToText,
+    // earned ids in registry order, the saved career totals, and this run's unlocks
+    achievements:() => ({ earned:earnedAchievementIds(), totals:{ ...achState.totals },
+                          wins:Object.keys(achState.wins), run:newAchievements.slice() }),
   };
 }
 
 refreshMuteBtn();
+grantRetroAchievements();
+refreshAchButton();
 buildDiffRow();
 buildClassGrid();
 refreshBestLine();
