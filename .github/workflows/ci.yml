@@ -3,12 +3,16 @@ name: CI
 on:
   push:
   pull_request:
+  # pages.yml calls this so the deploy gate runs exactly this suite.
+  workflow_call:
 
 permissions:
   contents: read
 
+# In a called workflow `github.workflow` is the caller's name, so a Pages run's
+# tests get their own group and never cancel (or wait on) the plain CI run.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
